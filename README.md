@@ -54,23 +54,8 @@ The system features:
         git clone <your-repository-url>
         cd google-agentic
 
-2.  **Create and activate a virtual environment:**
-
-        python3 -m venv venv
-        source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-
-3.  **Set Environment Variables:**
-    * Create a `.env` file in the project root or export these variables:
-
-            # Required for ADK/Gemini
-            export GOOGLE_API_KEY='YOUR_ACTUAL_API_KEY_HERE'
-
-            # Required for deployment script and GCP tools (if not overridden in code)
-            export GCP_PROJECT_ID='your-gcp-project-id'
-
-            # Optional: Set defaults for VM/BQ tools if needed
-            # export VM_DEFAULT_ZONE='us-central1-c'
-            # export BQ_DEFAULT_LOCATION='US'
+2.  **Set Environment Variables:**
+    * Copy the  `.env.example` file in the project root to a `.env` new file and set your default variables
 
     * ***Security Note:*** For production, manage `GOOGLE_API_KEY` securely using tools like [Secret Manager](https://cloud.google.com/secret-manager).
 
@@ -91,7 +76,6 @@ This script uses Cloud Build to create a Docker image, pushes it to Artifact Reg
 
 ## Configuration Notes
 
-* **Defaults:** Default values for GCP project ID, zone, machine types, etc., are often set within the `agents/*/tools.py` files, potentially falling back to environment variables. Consider centralizing configuration for better flexibility.
 * **Session Persistence:** The Streamlit UI uses `InMemorySessionService` by default. Chat history will be lost if the Cloud Run instance restarts. For persistent sessions, explore other ADK session services documented in the [Agent Development Kit](https://google.github.io/adk-docs/).
 
 ## Contributing
