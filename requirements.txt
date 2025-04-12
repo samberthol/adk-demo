@@ -1,0 +1,9 @@
+# requirements.txt
+streamlit
+google-cloud-bigquery
+google-cloud-compute
+google-auth
+google-adk # <--- Add this line
+pandas
+google-api-core
+# Add any other libraries your agents/tools use
