@@ -1,3 +1,4 @@
+# ui/live_connect_manager.py
 import asyncio
 import os
 from google import genai
@@ -9,7 +10,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration from the sample (adjust as needed)
-FORMAT = pyaudio.paInt16 # Assuming input/output format compatibility needs careful check
 CHANNELS = 1
 SEND_SAMPLE_RATE = 16000 # Sample rate expected by LiveConnect input
 RECEIVE_SAMPLE_RATE = 24000 # Sample rate provided by LiveConnect output
