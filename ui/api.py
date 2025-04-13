@@ -511,7 +511,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                             break # Exit loop on API error
 
                 except asyncio.CancelledError: logger.info(f"[{client_id}] receive_from_gemini task cancelled.")
-                except genai.types.generation_types.StopCandidateException as e: # Catch potential stop exceptions
+                except genai.types.StopCandidateException as e: # Catch potential stop exceptions
                      logger.info(f"[{client_id}] Gemini stream stopped normally via StopCandidateException: {e}")
                      try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended normally."}))
                      except Exception: pass

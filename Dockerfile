@@ -25,7 +25,7 @@ COPY requirements.txt .
 # This now includes requests, gunicorn, ffmpeg-python should also be added if needed by api.py
 # Assuming gunicorn needed for start.sh, ffmpeg-python for api.py
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir gunicorn ffmpeg-python
+    && pip install --no-cache-dir gunicorn ffmpeg-python google-generativeai
 
 # Copy the rest of the application code into the container
 COPY . .
