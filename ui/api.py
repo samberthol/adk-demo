@@ -18,6 +18,15 @@ from fastapi.responses import HTMLResponse
 from google import genai
 from google.genai import types
 
+# ***** MODIFICATION START *****
+# Import HttpOptions for API version selection
+try:
+    from google.genai.types import HttpOptions
+except ImportError as e:
+     logger.error(f"Critical Import Error for google.genai.types.HttpOptions: {e}. Check library version.")
+     HttpOptions = None # Set to None to handle gracefully if import fails
+# ***** MODIFICATION END *****
+
 try:
     # Import types needed for configuration, content, and ACTIVITY SIGNALS
     from google.genai.types import (
@@ -26,7 +35,7 @@ try:
         LiveClientMessage, ActivityStart, ActivityEnd # Added LiveClientMessage, ActivityStart, ActivityEnd
     )
     # Define basic config using imported types
-    # MODIFY: Add realtime_input_config to disable automatic detection
+    # Ensure this structure is valid for the v1alpha API you are targeting
     GEMINI_LIVE_CONFIG = LiveConnectConfig(
         response_modalities=["TEXT", "AUDIO"], # Request both text and audio back
         speech_config=SpeechConfig(
@@ -35,9 +44,10 @@ try:
             )
         ),
         # Add configuration to disable automatic activity detection
+        # This field caused the error before; v1alpha might support it here.
         realtime_input_config=RealtimeInputConfig(
-             automatic_activity_detection=AutomaticActivityDetection(disabled=True)
-             # You could add activity_handling and turn_coverage here if needed
+            automatic_activity_detection=AutomaticActivityDetection(disabled=True)
+            # You could add activity_handling and turn_coverage here if needed
         )
         # Add other configs like session resumption if needed
     )
@@ -45,6 +55,10 @@ except ImportError as e:
     logging.error(f"Critical Import Error for google.genai.types: {e}. Check library version.")
     # Set config to None to prevent startup if imports fail
     GEMINI_LIVE_CONFIG = None
+except Exception as e: # Catch potential validation errors if structure is still wrong for v1alpha
+    logging.error(f"Error defining GEMINI_LIVE_CONFIG (potentially invalid structure for target API version): {e}")
+    GEMINI_LIVE_CONFIG = None
+
 
 try:
     from agents.meta.agent import meta_agent
@@ -82,12 +96,26 @@ session_service = InMemorySessionService()
 adk_runner = Runner(agent=meta_agent, app_name=APP_NAME, session_service=session_service)
 active_adk_sessions = {}
 
-# --- Google Generative AI Configuration ---
+# ***** MODIFICATION START *****
+# --- Google Generative AI Configuration (using v1alpha) ---
+client = None # Initialize client variable globally
 if not GOOGLE_API_KEY:
-     logger.error("GOOGLE_API_KEY environment variable not set.")
+    logger.error("GOOGLE_API_KEY environment variable not set.")
+elif HttpOptions is None:
+    logger.error("Cannot configure client: HttpOptions failed to import. Check google-genai version.")
 else:
-     try: genai.configure(api_key=GOOGLE_API_KEY)
-     except Exception as e: logger.error(f"Failed to configure Google Generative AI: {e}")
+    try:
+        # Initialize the client directly, passing the API key and http_options
+        client = genai.Client(
+            api_key=GOOGLE_API_KEY,
+            http_options=HttpOptions(api_version='v1alpha') # Specify v1alpha here
+        )
+        logger.info("Google Generative AI client configured using v1alpha API.")
+    except Exception as e:
+         logger.error(f"Failed to configure Google Generative AI client: {e}")
+         # client remains None if initialization fails
+# ***** MODIFICATION END *****
+
 
 # --- ADK Interaction Functions (Sync for simplicity) ---
 def get_or_create_adk_session_sync(user_id: str) -> str:
@@ -129,6 +157,7 @@ def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> 
 app = FastAPI()
 
 # --- Frontend HTML/JS with Audio Playback AND Manual Activity Signals ---
+# (HTML remains the same as before)
 html = """
 <!DOCTYPE html>
 <html>
@@ -279,10 +308,10 @@ html = """
                         }
                     };
                 } catch (err) {
-                     statusSpan.textContent = "Error";
-                     logInteraction(`Error creating WebSocket: ${err}`, 'system');
-                     console.error("Error creating WebSocket:", err);
-                     startButton.disabled = true; stopButton.disabled = true;
+                       statusSpan.textContent = "Error";
+                       logInteraction(`Error creating WebSocket: ${err}`, 'system');
+                       console.error("Error creating WebSocket:", err);
+                       startButton.disabled = true; stopButton.disabled = true;
                 }
             }
 
@@ -330,7 +359,7 @@ html = """
                     console.error("Mic/Recorder Error:", err);
                      // --- MODIFICATION: Send end_activity signal if start failed after sending start_activity ---
                     sendControlMessage("end_activity");
-                    // --- End Modification ---
+                     // --- End Modification ---
                 }
             };
 
@@ -390,28 +419,46 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
     audio_queue = asyncio.Queue()
 
     try:
-        if not GOOGLE_API_KEY: raise ValueError("Server not configured with GOOGLE_API_KEY.")
-        if GEMINI_LIVE_CONFIG is None: raise ImportError("Required google.genai types could not be imported.")
+        # ***** MODIFICATION START *****
+        # Check if the global client (configured with v1alpha) was initialized successfully
+        if client is None:
+            logger.error(f"[{client_id}] Cannot start session: Google AI Client not initialized.")
+            await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Google AI Client not initialized."}))
+            # Consider closing the websocket if the client isn't ready
+            await websocket.close(code=1011) # Internal error
+            return # Stop processing if client is not available
+        # ***** MODIFICATION END *****
+
+        # These checks remain important
+        if not GOOGLE_API_KEY: raise ValueError("Server not configured with GOOGLE_API_KEY.") # Should be caught by client check, but safe
+        if GEMINI_LIVE_CONFIG is None: raise ImportError("Required google.genai types could not be imported or config failed validation.")
 
         adk_session_id = get_or_create_adk_session_sync(client_id)
         await websocket.send_text(json.dumps({"type": "info", "message": f"ADK Session Ready: {adk_session_id}"}))
 
-        client = genai.Client()
-        logger.info(f"[{client_id}] Initializing Gemini live session...")
+        # Use the globally configured 'client' instance (now using v1alpha)
+        logger.info(f"[{client_id}] Initializing Gemini live session using pre-configured client...")
 
-        async with client.aio.live.connect(
+        async with client.aio.live.connect( # Use the client instance configured above
             model=GEMINI_LIVE_MODEL_NAME,
-            config=GEMINI_LIVE_CONFIG # Config now includes disabled auto activity detection
+            config=GEMINI_LIVE_CONFIG # Pass the config object defined earlier
         ) as live_session:
             logger.info(f"[{client_id}] Gemini live session established.")
-            await websocket.send_text(json.dumps({"type": "info", "message": "Manual activity detection active."}))
+            # Check if manual activity detection is intended (based on config)
+            if GEMINI_LIVE_CONFIG.realtime_input_config and \
+               GEMINI_LIVE_CONFIG.realtime_input_config.automatic_activity_detection and \
+               GEMINI_LIVE_CONFIG.realtime_input_config.automatic_activity_detection.disabled:
+                await websocket.send_text(json.dumps({"type": "info", "message": "Manual activity detection active."}))
+            else:
+                 await websocket.send_text(json.dumps({"type": "info", "message": "Automatic activity detection active (default or config)."}))
+
 
             # Task to receive audio, transcode, and send to Gemini
             async def send_audio_to_gemini():
                 while True:
                     try:
                         webm_chunk = await audio_queue.get()
-                        if webm_chunk is None: break
+                        if webm_chunk is None: break # Signal to stop
                         if ffmpeg:
                             pcm_chunk = await transcode_audio_ffmpeg(webm_chunk)
                             if pcm_chunk:
@@ -441,10 +488,10 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                 logger.info(f"[{client_id}] Final Transcript: '{final_transcript_buffer}'")
                                 await websocket.send_text(json.dumps({"type": "final_transcript", "transcript": final_transcript_buffer}))
                                 if final_transcript_buffer.strip():
-                                     await websocket.send_text(json.dumps({"type": "info", "message": "Sending to agent..."}))
-                                     loop = asyncio.get_running_loop()
-                                     agent_response = await loop.run_in_executor(None, run_adk_turn_sync, client_id, adk_session_id, final_transcript_buffer)
-                                     await websocket.send_text(json.dumps({"type": "agent_response", "response": agent_response}))
+                                    await websocket.send_text(json.dumps({"type": "info", "message": "Sending to agent..."}))
+                                    loop = asyncio.get_running_loop()
+                                    agent_response = await loop.run_in_executor(None, run_adk_turn_sync, client_id, adk_session_id, final_transcript_buffer)
+                                    await websocket.send_text(json.dumps({"type": "agent_response", "response": agent_response}))
                                 final_transcript_buffer = "" # Reset buffer
                             elif STREAMING_INTERIM_RESULTS and transcript_data.text:
                                 interim_text = final_transcript_buffer + transcript_data.text
@@ -452,22 +499,27 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
                         # Handle Audio Response (TTS)
                         if response.server_content and response.server_content.model_turn:
-                             for part in response.server_content.model_turn.parts:
-                                 if part.inline_data and part.inline_data.data:
-                                     logger.info(f"[{client_id}] Received audio data: {len(part.inline_data.data)} bytes")
-                                     await websocket.send_bytes(part.inline_data.data) # Send raw audio bytes
+                              for part in response.server_content.model_turn.parts:
+                                    if part.inline_data and part.inline_data.data:
+                                        logger.info(f"[{client_id}] Received audio data: {len(part.inline_data.data)} bytes")
+                                        await websocket.send_bytes(part.inline_data.data) # Send raw audio bytes
 
                         # Handle Errors from Gemini (check if error structure is different in Live API)
                         if response.error: # Assuming error is directly on response, adjust if needed
                             logger.error(f"[{client_id}] Gemini live session error: {response.error}")
                             await websocket.send_text(json.dumps({"type": "error", "message": f"Speech API Error: {response.error}"}))
-                            break
+                            break # Exit loop on API error
 
                 except asyncio.CancelledError: logger.info(f"[{client_id}] receive_from_gemini task cancelled.")
+                except genai.types.generation_types.StopCandidateException as e: # Catch potential stop exceptions
+                     logger.info(f"[{client_id}] Gemini stream stopped normally via StopCandidateException: {e}")
+                     try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended normally."}))
+                     except Exception: pass
                 except Exception as e:
                     logger.error(f"[{client_id}] Error in receive_from_gemini: {e}", exc_info=True)
                     try: await websocket.send_text(json.dumps({"type": "error", "message": f"Error processing speech: {e}"}))
                     except WebSocketDisconnect: pass
+                    except Exception: pass # Ignore further errors if WS already closed
                 finally: logger.info(f"[{client_id}] receive_from_gemini finished.")
 
 
@@ -487,69 +539,81 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     await audio_queue.put(data['bytes']) # Queue raw WebM audio for transcoding
                 elif data['type'] == 'text':
                     try:
-                         msg = json.loads(data['text'])
-                         if msg.get("type") == "control":
-                              action = msg.get("action")
-                              if action == "start_activity":
-                                   logger.info(f"[{client_id}] Received start_activity signal.")
-                                   # Send ActivityStart signal to Gemini
-                                   await live_session.send(LiveClientMessage(activity_start=ActivityStart()))
-                              elif action == "end_activity":
-                                   logger.info(f"[{client_id}] Received end_activity signal.")
-                                   # Send ActivityEnd signal to Gemini
-                                   await live_session.send(LiveClientMessage(activity_end=ActivityEnd()))
-                                   # Consider if this should also signal end of audio queue? Maybe not needed.
-                              else:
-                                   logger.warning(f"[{client_id}] Received unknown control action: {action}")
-                         else:
-                              logger.warning(f"[{client_id}] Received unknown text message structure: {data['text']}")
+                        msg = json.loads(data['text'])
+                        if msg.get("type") == "control":
+                             action = msg.get("action")
+                             if action == "start_activity":
+                                 logger.info(f"[{client_id}] Received start_activity signal.")
+                                 # Send ActivityStart signal to Gemini
+                                 await live_session.send(LiveClientMessage(activity_start=ActivityStart()))
+                             elif action == "end_activity":
+                                 logger.info(f"[{client_id}] Received end_activity signal.")
+                                 # Send ActivityEnd signal to Gemini
+                                 await live_session.send(LiveClientMessage(activity_end=ActivityEnd()))
+                                 # Consider if this should also signal end of audio queue? Maybe not needed.
+                             else:
+                                 logger.warning(f"[{client_id}] Received unknown control action: {action}")
+                        else:
+                             logger.warning(f"[{client_id}] Received unknown text message structure: {data['text']}")
                     except json.JSONDecodeError:
-                         logger.warning(f"[{client_id}] Received non-JSON text: {data['text']}")
+                        logger.warning(f"[{client_id}] Received non-JSON text: {data['text']}")
                     except Exception as e:
-                         logger.error(f"[{client_id}] Error processing text msg: {e}")
+                        logger.error(f"[{client_id}] Error processing text msg: {e}")
 
             logger.info(f"[{client_id}] Exited main WS receive loop.")
 
     # --- Exception Handling & Cleanup ---
     except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
-    except genai.types.generation_types.StopCandidateException as e:
-        logger.info(f"[{client_id}] Gemini stream stopped normally: {e}")
+    except genai.types.generation_types.StopCandidateException as e: # Catch stop exceptions outside the loop too
+        logger.info(f"[{client_id}] Gemini stream stopped normally (StopCandidateException): {e}")
         try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended."}))
         except Exception: pass
-    except ImportError as e:
+    except ImportError as e: # Catch import errors during setup
         logger.error(f"[{client_id}] Startup failed due to ImportError: {e}")
         try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Import Error: {e}"}))
         except Exception: pass
-    except ValueError as e:
+    except ValueError as e: # Catch value errors during setup (e.g., missing key)
         logger.error(f"[{client_id}] Startup failed due to ValueError: {e}")
         try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Config Error: {e}"}))
         except Exception: pass
-    except Exception as e:
+    except Exception as e: # Catch any other unexpected errors
         logger.error(f"Unexpected error in WS handler {client_id}: {e}", exc_info=True)
-        try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server error: {str(e)}"}))
-        except Exception: pass
+        try:
+            # Avoid sending if WS is already closing/closed
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                 await websocket.send_text(json.dumps({"type": "error", "message": f"Server error: {str(e)}"}))
+        except Exception: pass # Ignore errors during error reporting
     finally:
         logger.info(f"Closing WS connection & cleaning up for {client_id}.")
+        # Ensure tasks are cancelled
         if send_task and not send_task.done(): send_task.cancel()
         if receive_task and not receive_task.done(): receive_task.cancel()
+        # Signal audio queue to stop (if send_task didn't finish)
         try: await audio_queue.put(None)
         except Exception: pass
+        # Wait for tasks to finish cancellation
         try:
-             tasks = [t for t in [send_task, receive_task] if t]
-             if tasks: await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = [t for t in [send_task, receive_task] if t]
+            if tasks: await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as gather_err: logger.error(f"[{client_id}] Error during task cleanup: {gather_err}")
+        # Clean up ADK session link
         if client_id in active_adk_sessions: del active_adk_sessions[client_id]; logger.info(f"Removed ADK session link for {client_id}.")
+        # Ensure WebSocket is closed from server-side if still connected
         try:
             ws_state = getattr(websocket, 'client_state', None)
-            if ws_state and ws_state != WebSocketState.DISCONNECTED: await websocket.close()
+            # Use WebSocketState enum for comparison
+            if ws_state and ws_state != WebSocketState.DISCONNECTED:
+                 await websocket.close()
+                 logger.info(f"Closed WebSocket for {client_id} from server side.")
         except Exception as e: logger.error(f"Error closing WS for {client_id}: {e}")
 
 # --- Uvicorn Runner ---
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting FastAPI server directly with Uvicorn...")
-    if not GOOGLE_API_KEY: logger.warning("WARNING: GOOGLE_API_KEY env var not set.")
+    if client is None: # Check if client initialization failed earlier
+        logger.error("FATAL: Google AI Client could not be initialized. API calls will fail.")
     # Ensure ffmpeg availability check if critical
     if ffmpeg is None:
         logger.warning("WARNING: ffmpeg-python not found, audio transcoding will fail.")
-    uvicorn.run("ui.api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("ui.api:app", host="0.0.0.0", port=8000, reload=True) # Consider reload=False for production
