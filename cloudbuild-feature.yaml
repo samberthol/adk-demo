@@ -12,7 +12,8 @@ steps:
         # Sanitize branch name and combine with short SHA for the tag
         SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
         # Construct the full image name using Cloud Build substitutions and the sanitized tag
-        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        # Escape the $ for the shell variable SANITIZED_TAG using \$
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:\${SANITIZED_TAG}"
         echo "Building image: ${FULL_IMAGE_NAME}"
         # Use the fully constructed image name variable
         docker build -t "${FULL_IMAGE_NAME}" .
@@ -25,7 +26,8 @@ steps:
       - '-c'
       - |
         SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
-        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        # Escape the $ for the shell variable SANITIZED_TAG using \$
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:\${SANITIZED_TAG}"
         echo "Pushing image: ${FULL_IMAGE_NAME}"
         # Use the fully constructed image name variable
         docker push "${FULL_IMAGE_NAME}"
@@ -38,7 +40,8 @@ steps:
       - '-c'
       - |
         SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
-        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        # Escape the $ for the shell variable SANITIZED_TAG using \$
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:\${SANITIZED_TAG}"
         echo "Deploying image: ${FULL_IMAGE_NAME}"
         # Use the fully constructed image name variable in the --image flag
         gcloud run deploy "${_SERVICE_NAME_FEATURE}" \
@@ -50,7 +53,7 @@ steps:
           --set-env-vars="^##^GEMINI_API_KEY=${_GEMINI_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}' \
           --quiet
 
-# images section remains the same (listing base image name)
+# images section remains the same
 images:
   - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}'
 
