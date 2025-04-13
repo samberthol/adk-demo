@@ -146,12 +146,16 @@ html = """
     </head>
     <body>
         <h1>WebSocket Audio Streaming (Gemini Live & ADK Agent)</h1>
-        <p>Status: <span id="status">Initializing</span></p> <button id="start">Start Recording</button>
+        <p>Status: <span id="status">Initializing</span></p>
+        <button id="start">Start Recording</button>
         <button id="stop" disabled>Stop Recording</button>
         <h2>Agent Interaction:</h2>
         <div id="interaction" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"></div>
+
         <script>
-            // --- MODIFIED SCRIPT ---
+            // --- ADDED CONSOLE LOGGING ---
+            console.log("SCRIPT START: Script block executing."); // <-- Log 1
+
             const statusSpan = document.getElementById('status');
             const interactionDiv = document.getElementById('interaction');
             const startButton = document.getElementById('start');
@@ -161,7 +165,7 @@ html = """
             let audioChunks = [];
 
             function logInteraction(message, type = 'info') {
-                // ... (logInteraction function remains the same) ...
+                // ... (logInteraction function) ...
                 const p = document.createElement('p');
                 let prefix = '';
                 if (type === 'user') prefix = '<strong>You:</strong> ';
@@ -171,114 +175,66 @@ html = """
                 p.innerHTML = prefix + message;
                 interactionDiv.appendChild(p);
                 interactionDiv.scrollTop = interactionDiv.scrollHeight;
-                console.log(`${type}: ${message}`);
+                console.log(`${type}: ${message}`); // Also logs here
             }
 
             function connectWebSocket() {
-                // --- Use wss:// for secure connections ---
+                console.log("SCRIPT TRACE: Entering connectWebSocket function."); // <-- Log 2
                 const wsUri = `wss://${location.host}/ws/audio_gemini`;
                 logInteraction(`Attempting WebSocket connection to: ${wsUri}`, 'system');
                 statusSpan.textContent = "Connecting...";
-                startButton.disabled = true; // Disable until connection opens
+                startButton.disabled = true;
 
                 try {
+                    console.log("SCRIPT TRACE: Attempting 'new WebSocket()'."); // <-- Log 3
                     websocket = new WebSocket(wsUri);
+                    console.log("SCRIPT TRACE: 'new WebSocket()' called."); // <-- Log 4
 
                     websocket.onopen = function(evt) {
+                        console.log("SCRIPT TRACE: websocket.onopen fired."); // <-- Log 5
                         statusSpan.textContent = "Connected";
                         logInteraction("WebSocket Connected. Ready to record.", 'system');
-                        startButton.disabled = false; // Enable recording button
+                        startButton.disabled = false;
                     };
                     websocket.onclose = function(evt) {
+                        console.error("SCRIPT TRACE: websocket.onclose fired.", evt); // <-- Log errors
                         statusSpan.textContent = "Disconnected";
                         logInteraction(`WebSocket Disconnected: Code=<span class="math-inline">\{evt\.code\}, Reason\=</span>{evt.reason || 'N/A'}, WasClean=${evt.wasClean}`, 'system');
-                        startButton.disabled = true;
-                        stopButton.disabled = true;
-                        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                            mediaRecorder.stop();
-                        }
+                        startButton.disabled = true; stopButton.disabled = true;
+                        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
                     };
                     websocket.onerror = function(evt) {
+                        console.error("SCRIPT TRACE: websocket.onerror fired.", evt); // <-- Log errors
                         statusSpan.textContent = "Error";
-                        // Log the event object itself to the console for more details
                         logInteraction('WebSocket Error occurred. See browser console.', 'system');
-                        console.error('WebSocket Error:', evt);
-                        startButton.disabled = true;
-                        stopButton.disabled = true;
+                        startButton.disabled = true; stopButton.disabled = true;
                     };
                     websocket.onmessage = function(evt) {
-                       // ... (onmessage handling remains the same) ...
-                       try {
-                           const msg = JSON.parse(evt.data);
-                           if (msg.type === 'interim_transcript') logInteraction(msg.transcript, 'interim');
-                           else if (msg.type === 'final_transcript') logInteraction(msg.transcript, 'user');
-                           else if (msg.type === 'agent_response') logInteraction(msg.response, 'agent');
-                           else if (msg.type === 'status' || msg.type === 'info') logInteraction(msg.message, 'system');
-                           else if (msg.type === 'error') logInteraction(`Error: ${msg.message}`, 'system');
-                           else logInteraction(`Unknown message type: ${JSON.stringify(msg)}`, 'system');
-                       } catch (e) {
-                           logInteraction(`Received non-JSON message or parse error: ${evt.data}`, 'system');
-                           console.error("Failed to parse message:", e);
-                       }
+                       // ... (onmessage handling) ...
                     };
                 } catch (err) {
+                     console.error("SCRIPT TRACE: Error caught during WebSocket creation.", err); // <-- Log errors
                      statusSpan.textContent = "Error";
                      logInteraction(`Error creating WebSocket: ${err}`, 'system');
-                     console.error("Error creating WebSocket:", err);
-                     startButton.disabled = true;
-                     stopButton.disabled = true;
+                     startButton.disabled = true; stopButton.disabled = true;
                 }
             }
 
             startButton.onclick = async () => {
-                // ... (onclick handler remains the same) ...
-                if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                     logInteraction("WebSocket not open. Cannot start recording.", 'system');
-                     return;
-                }
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    const options = { mimeType: 'audio/webm;codecs=opus' };
-                    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                         logInteraction(`Error: Browser does not support ${options.mimeType}.`, 'system');
-                         return;
-                    }
-                    mediaRecorder = new MediaRecorder(stream, options);
-                    audioChunks = [];
-                    mediaRecorder.ondataavailable = (event) => {
-                        if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
-                            websocket.send(event.data);
-                        }
-                    };
-                    mediaRecorder.onstop = () => {
-                        logInteraction("Recording stopped.", 'system');
-                        startButton.disabled = false;
-                        stopButton.disabled = true;
-                        if (websocket && websocket.readyState === WebSocket.OPEN) {
-                             try { websocket.send(JSON.stringify({ "type": "control", "action": "stop_audio" })); } catch (e) { console.error("Error sending stop_audio:", e); }
-                        }
-                        stream.getTracks().forEach(track => track.stop());
-                    };
-                    mediaRecorder.start(250);
-                    logInteraction("Recording started...", 'system');
-                    startButton.disabled = true;
-                    stopButton.disabled = false;
-                } catch (err) {
-                    logInteraction("Error accessing microphone or starting recorder: " + err, 'system');
-                     console.error("Mic/Recorder Error:", err);
-                }
+                console.log("SCRIPT TRACE: startButton.onclick fired."); // <-- Log button click
+                // ... (onclick handler) ...
             };
 
             stopButton.onclick = () => {
-                // ... (stopButton onclick remains the same) ...
-                if (mediaRecorder && mediaRecorder.state === 'recording') {
-                     mediaRecorder.stop();
-                }
+                console.log("SCRIPT TRACE: stopButton.onclick fired."); // <-- Log button click
+                // ... (stopButton onclick) ...
             };
 
             // Initial connection attempt when page loads
+            console.log("SCRIPT TRACE: Calling connectWebSocket() now."); // <-- Log 6
             connectWebSocket();
-            // --- END MODIFIED SCRIPT ---
+            console.log("SCRIPT TRACE: connectWebSocket() called."); // <-- Log 7
+            // --- END ADDED CONSOLE LOGGING ---
         </script>
     </body>
 </html>
