@@ -24,7 +24,6 @@ CONFIG = types.LiveConnectConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Puck") # Choose voice
         )
     ),
-    # audio_processing_config parameter removed here
 )
 
 class LiveConnectManager:
@@ -36,13 +35,19 @@ class LiveConnectManager:
         self._audio_out_queue = asyncio.Queue() # Queue for audio bytes TO LiveConnect
         self._tasks = []
         self._is_running = False
-        self._api_key = os.getenv("GEMINI_API_KEY")
+        self._api_key = os.getenv("GEMINI_API_KEY") # Read API key from environment
         if not self._api_key:
+            # Raise error if the environment variable wasn't set during deployment
             raise ValueError("GEMINI_API_KEY environment variable not set.")
 
-        # Ensure client is configured for the right API version if needed
-        genai.configure(api_key=self._api_key)
-        self._client = genai.GenerativeModel(MODEL) # Or use genai.Client if needed for specific API version
+        # --- REMOVED genai.configure(api_key=self._api_key) ---
+        # Authentication should be handled automatically by the client
+        # using the environment variable or application default credentials.
+
+        # Initialize the GenerativeModel client
+        self._client = genai.GenerativeModel(MODEL)
+        logger.info(f"LiveConnectManager initialized for model {MODEL}")
+
 
     async def _receive_audio_loop(self):
         """Receives audio and text from the LiveConnect session."""
@@ -93,7 +98,6 @@ class LiveConnectManager:
         self._is_running = True
         try:
             # Connect to the LiveConnect service using the configured client and CONFIG
-            # Ensure the connect_live method is appropriate for GenerativeModel or use genai.Client
             self._session = await self._client.connect_live(config=CONFIG)
             logger.info("LiveConnect session started successfully.")
 
@@ -122,7 +126,10 @@ class LiveConnectManager:
 
         # Signal send loop to stop by putting None in the queue
         try:
-            await self._audio_out_queue.put(None)
+            # Use put_nowait or handle potential await blocking carefully during shutdown
+            self._audio_out_queue.put_nowait(None)
+        except asyncio.QueueFull:
+             logger.warning("Audio out queue full during stop signal, sender might not stop cleanly.")
         except Exception as e:
             logger.error(f"Error putting None sentinel in audio_out_queue: {e}")
 
@@ -136,7 +143,7 @@ class LiveConnectManager:
         # Use a timeout to prevent hanging indefinitely
         try:
              results = await asyncio.wait_for(asyncio.gather(*self._tasks, return_exceptions=True), timeout=5.0)
-             logger.info(f"Gather results: {results}")
+             logger.info(f"Gather results on stop: {results}")
         except asyncio.TimeoutError:
              logger.warning("Timeout waiting for tasks to finish during stop_session.")
         except Exception as e:
@@ -175,7 +182,7 @@ class LiveConnectManager:
         if self._is_running:
             try:
                 # Consider adding a timeout to put_nowait or using put with timeout
-                # if backpressure is a concern
+                # if backpressure is a concern and the queue might get full
                 await self._audio_out_queue.put(chunk)
             except Exception as e:
                  logger.error(f"Failed to put audio chunk in queue: {e}")
