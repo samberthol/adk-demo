@@ -5,6 +5,8 @@ FROM python:3.11-slim
 # Set the working directory in the container
 WORKDIR /app
 
+ENV PYTHONPATH=/app
+
 # Install system dependencies
 # - ffmpeg is needed for audio transcoding in the FastAPI app
 # - git is sometimes needed for pip installs from repos
