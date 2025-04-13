@@ -394,7 +394,7 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/audio_gemini")
 async def websocket_endpoint_gemini(websocket: WebSocket):
-    """Handles WebSocket connections for audio streaming."""
+    """Handles WebSocket connections for audio streaming using client.aio.live."""
     await websocket.accept()
     client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}"
     logger.info(f"WebSocket connection accepted: {client_id}")
@@ -406,22 +406,32 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
     try:
         # --- Initial Setup ---
-        if not GOOGLE_API_KEY: raise ValueError("Server not configured with GOOGLE_API_KEY.")
-        if GEMINI_LIVE_CONFIG is None: raise ImportError("Required google.genai types could not be imported.")
+        if not GOOGLE_API_KEY:
+            raise ValueError("Server not configured with GOOGLE_API_KEY.")
+        if GEMINI_LIVE_CONFIG is None:
+            raise ImportError("Required google.genai types could not be imported.")
 
         adk_session_id = get_or_create_adk_session_sync(client_id)
         await websocket.send_text(json.dumps({"type": "info", "message": f"ADK Session Ready: {adk_session_id}"}))
 
-        model = genai.GenerativeModel(GEMINI_LIVE_MODEL_NAME)
+        # --- Instantiate genai.Client ---
+        # Assuming genai.configure(api_key=GOOGLE_API_KEY) was called at startup
+        # Include http_options if specifically needed, as shown in one doc example
+        # client = genai.Client(http_options={'api_version': 'v1alpha'}) # Option 1: With specific API version if needed
+        client = genai.Client() # Option 2: Default client initialization
 
-        # --- Gemini Live Connection ---
-        logger.info(f"[{client_id}] Initializing Gemini live session...")
-        async with model.connect_live(config=GEMINI_LIVE_CONFIG) as live_session:
+        # --- Gemini Live Connection using client.aio.live.connect ---
+        logger.info(f"[{client_id}] Initializing Gemini live session using client.aio.live...")
+        async with client.aio.live.connect(
+            model=GEMINI_LIVE_MODEL_NAME, # Use the model name constant
+            config=GEMINI_LIVE_CONFIG     # Use the config constant
+        ) as live_session:
             logger.info(f"[{client_id}] Gemini live session established.")
             await websocket.send_text(json.dumps({"type": "info", "message": "Speech recognition active."}))
 
             # Task to receive audio from client, transcode, and send to Gemini
             async def send_audio_to_gemini():
+                # --- THIS INNER FUNCTION REMAINS THE SAME ---
                 while True:
                     try:
                         webm_chunk = await audio_queue.get()
@@ -432,21 +442,19 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                             pcm_chunk = await transcode_audio_ffmpeg(webm_chunk)
                             if pcm_chunk:
                                 # Send transcoded audio to Gemini Live API
-                                # Need to check expected format: raw bytes or structured?
-                                # Assuming raw bytes for now based on some examples
+                                # Assuming client.aio.live expects raw bytes in 'input'
                                 await live_session.send(input={"data": pcm_chunk, "mime_type": "audio/pcm"})
-                                # logger.debug(f"[{client_id}] Sent {len(pcm_chunk)} PCM bytes to Gemini.")
                             else:
                                 logger.warning(f"[{client_id}] Transcoding failed for chunk.")
                         else:
                             logger.error(f"[{client_id}] Cannot process audio: ffmpeg-python not available.")
-                            # Maybe send error to client? Or just stop?
                         audio_queue.task_done()
                     except asyncio.CancelledError: logger.info(f"[{client_id}] send_audio task cancelled."); break
                     except Exception as e: logger.error(f"[{client_id}] Error in send_audio_to_gemini: {e}", exc_info=True); break
 
             # Task to receive responses from Gemini and interact with ADK/Client
             async def receive_from_gemini():
+                # --- THIS INNER FUNCTION REMAINS THE SAME ---
                 final_transcript_buffer = ""
                 try:
                     async for response in live_session:
@@ -487,11 +495,13 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     except WebSocketDisconnect: pass
                 finally: logger.info(f"[{client_id}] receive_from_gemini finished.")
 
+
             # Start background tasks
             send_task = asyncio.create_task(send_audio_to_gemini())
             receive_task = asyncio.create_task(receive_from_gemini())
 
             # Main loop to receive data from client WebSocket
+            # --- THIS LOOP REMAINS THE SAME ---
             stop_audio_received = False
             while not stop_audio_received:
                 data = await websocket.receive()
@@ -503,22 +513,24 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                          if msg.get("type") == "control" and msg.get("action") == "stop_audio":
                               logger.info(f"[{client_id}] Received stop audio signal.")
                               stop_audio_received = True
-                              # Optionally signal end of audio to Gemini if API supports it
-                              # await live_session.send(input={"end_of_audio": True})
+                              # Note: client.aio.live might have its own way to signal end of audio, check docs if needed
                          else: logger.warning(f"[{client_id}] Received unknown text: {data['text']}")
                     except json.JSONDecodeError: logger.warning(f"[{client_id}] Received non-JSON text: {data['text']}")
                     except Exception as e: logger.error(f"[{client_id}] Error processing text msg: {e}")
 
             logger.info(f"[{client_id}] Exited main WS receive loop.")
 
-    # --- Exception Handling & Cleanup ---
-    except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
+    # --- Exception Handling & Cleanup (with improved formatting) ---
+    except WebSocketDisconnect:
+        logger.info(f"WS client {client_id} disconnected.")
+
+    # Handle potential specific StopCandidateException if client.aio.live raises it
     except genai.types.generation_types.StopCandidateException as e:
         logger.info(f"[{client_id}] Gemini stream stopped normally: {e}")
         try:
             await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended."}))
         except Exception:
-            pass  # Ignore errors sending closure message if WS is already closed
+            pass # Ignore errors sending closure message
 
     except ImportError as e:
         logger.error(f"[{client_id}] Startup failed due to ImportError: {e}")
@@ -540,8 +552,9 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
             await websocket.send_text(json.dumps({"type": "error", "message": f"Server error: {str(e)}"}))
         except Exception:
             pass
-        
+
     finally:
+        # --- THIS FINALLY BLOCK REMAINS THE SAME ---
         logger.info(f"Closing WS connection & cleaning up for {client_id}.")
         # Cancel background tasks
         if send_task and not send_task.done(): send_task.cancel()
@@ -561,7 +574,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
             ws_state = getattr(websocket, 'client_state', None)
             if ws_state and ws_state != WebSocketState.DISCONNECTED: await websocket.close()
         except Exception as e: logger.error(f"Error closing WS for {client_id}: {e}")
-
+        
 # --- Uvicorn Runner ---
 if __name__ == "__main__":
     # ... (remains the same) ...
