@@ -4,6 +4,7 @@ import os
 from google import genai
 from google.genai import types
 import logging
+import os # Make sure os is imported if not already
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,34 +36,37 @@ class LiveConnectManager:
         self._audio_out_queue = asyncio.Queue() # Queue for audio bytes TO LiveConnect
         self._tasks = []
         self._is_running = False
-        self._api_key = os.getenv("GEMINI_API_KEY") # Read API key from environment
+
+        # Check for API key env var (still good practice)
+        self._api_key = os.getenv("GEMINI_API_KEY")
         if not self._api_key:
-            # Raise error if the environment variable wasn't set during deployment
             raise ValueError("GEMINI_API_KEY environment variable not set.")
 
-        # --- REMOVED genai.configure(api_key=self._api_key) ---
-        # Authentication should be handled automatically by the client
-        # using the environment variable or application default credentials.
-
-        # Initialize the GenerativeModel client
-        self._client = genai.GenerativeModel(MODEL)
-        logger.info(f"LiveConnectManager initialized for model {MODEL}")
-
+        # --- CORRECTED INITIALIZATION ---
+        # Use genai.Client() as shown in the LiveAPI sample.
+        # Authentication should be handled automatically via the environment variable.
+        try:
+             # Attempt standard client initialization
+             self._client = genai.Client()
+             logger.info("genai.Client initialized.")
+             # Optionally verify connection or capabilities here if needed/possible
+        except Exception as e:
+             logger.error(f"Failed to initialize genai.Client: {e}", exc_info=True)
+             raise # Re-raise critical initialization error
+        # --- END OF CORRECTION ---
 
     async def _receive_audio_loop(self):
         """Receives audio and text from the LiveConnect session."""
+        # ... (no changes needed in this method) ...
         try:
             while self._is_running and self._session:
                 turn = self._session.receive()
                 async for response in turn:
-                    if not self._is_running: break # Check flag again
+                    if not self._is_running: break
                     if data := response.data:
-                        # Put raw audio bytes received from Gemini into the queue
                         await self._audio_in_queue.put(data)
                     if text := response.text:
-                        # Put transcribed text received from Gemini into the queue
                         await self._text_out_queue.put(text)
-                # Handle turn completion if needed (e.g., clear queues on interruption)
         except asyncio.CancelledError:
             logger.info("Receive loop cancelled.")
         except Exception as e:
@@ -70,16 +74,16 @@ class LiveConnectManager:
         finally:
             logger.info("Receive loop finished.")
 
+
     async def _send_audio_loop(self):
         """Sends audio byte chunks from the outgoing queue to the LiveConnect session."""
+        # ... (no changes needed in this method) ...
         try:
             while self._is_running and self._session:
-                # Wait for an audio chunk from the calling code (e.g., AudioProcessor)
                 audio_chunk = await self._audio_out_queue.get()
-                if audio_chunk is None: # Use None as a signal to stop
+                if audio_chunk is None:
                     break
-                if self._is_running: # Check again before sending
-                    # Send the raw audio bytes
+                if self._is_running:
                     await self._session.send(input={"data": audio_chunk, "mime_type": "audio/pcm"})
                 self._audio_out_queue.task_done()
         except asyncio.CancelledError:
@@ -89,21 +93,36 @@ class LiveConnectManager:
         finally:
             logger.info("Send loop finished.")
 
+
     async def start_session(self):
         """Starts the LiveConnect session and background tasks."""
         if self._is_running:
             logger.warning("Session already running.")
             return
+        if not self._client:
+             logger.error("Cannot start session: genai.Client was not initialized.")
+             raise RuntimeError("genai.Client failed to initialize.")
 
         self._is_running = True
         try:
-            # Connect to the LiveConnect service using the configured client and CONFIG
-            self._session = await self._client.connect_live(config=CONFIG)
+            # --- CORRECTED SESSION START ---
+            # Use the client.aio.live.connect pattern from the sample
+            # Note: The sample used 'async with', we need the explicit call to get the session object
+            # The exact path might vary slightly based on library structure, but this mirrors the sample.
+            # Check if 'aio' attribute exists if issues persist
+            if not hasattr(self._client, 'aio') or not hasattr(self._client.aio, 'live') or not hasattr(self._client.aio.live, 'connect'):
+                 logger.error("Client object does not have expected 'aio.live.connect' structure.")
+                 # Fallback or alternative attempt if needed:
+                 # model_client = self._client.get_model(MODEL) # Try getting model specific client first?
+                 # self._session = await model_client.connect_live(config=CONFIG)
+                 raise AttributeError("Correct method to initiate live connection not found on client object.")
+
+            self._session = await self._client.aio.live.connect(model=MODEL, config=CONFIG)
+            # --- END OF CORRECTION ---
+
             logger.info("LiveConnect session started successfully.")
 
-            # Clear any stale tasks before starting new ones
             self._tasks = []
-            # Start background tasks for sending and receiving
             self._tasks.append(asyncio.create_task(self._receive_audio_loop()))
             self._tasks.append(asyncio.create_task(self._send_audio_loop()))
             logger.info("Send/Receive loops created.")
@@ -112,11 +131,11 @@ class LiveConnectManager:
             logger.error(f"Failed to start LiveConnect session: {e}", exc_info=True)
             self._is_running = False
             self._session = None
-            # Re-raise the exception so the calling code knows about the failure
             raise
 
     async def stop_session(self):
         """Stops the LiveConnect session and background tasks gracefully."""
+        # ... (no changes needed in this method, relies on self._session) ...
         if not self._is_running:
             logger.info("Stop session called but not running.")
             return
@@ -124,23 +143,17 @@ class LiveConnectManager:
         self._is_running = False # Signal loops to stop checking
         logger.info("Stopping LiveConnect session...")
 
-        # Signal send loop to stop by putting None in the queue
         try:
-            # Use put_nowait or handle potential await blocking carefully during shutdown
             self._audio_out_queue.put_nowait(None)
         except asyncio.QueueFull:
              logger.warning("Audio out queue full during stop signal, sender might not stop cleanly.")
         except Exception as e:
             logger.error(f"Error putting None sentinel in audio_out_queue: {e}")
 
-
-        # Cancel currently running async tasks
         for task in self._tasks:
             if not task.done():
                 task.cancel()
 
-        # Await task completion (or cancellation)
-        # Use a timeout to prevent hanging indefinitely
         try:
              results = await asyncio.wait_for(asyncio.gather(*self._tasks, return_exceptions=True), timeout=5.0)
              logger.info(f"Gather results on stop: {results}")
@@ -149,20 +162,14 @@ class LiveConnectManager:
         except Exception as e:
              logger.error(f"Error during task gathering in stop_session: {e}")
         finally:
-             self._tasks = [] # Clear the task list
+             self._tasks = []
 
-
-        # Clear queues (optional, but good practice)
         while not self._audio_in_queue.empty(): self._audio_in_queue.get_nowait()
         while not self._text_out_queue.empty(): self._text_out_queue.get_nowait()
         while not self._audio_out_queue.empty(): self._audio_out_queue.get_nowait()
 
-
-        # Close the session if the library provides an explicit close method
-        # (This depends on the specific session object returned by connect_live)
         if self._session and hasattr(self._session, 'close') and callable(self._session.close):
             try:
-                # Check if it's an async close
                 if asyncio.iscoroutinefunction(self._session.close):
                      await self._session.close()
                 else:
@@ -171,18 +178,17 @@ class LiveConnectManager:
             except Exception as e:
                  logger.error(f"Error closing LiveConnect session: {e}")
         elif self._session:
-            # If no explicit close, log that we rely on connection termination or GC
             logger.info("No explicit close method found on session object, relying on connection termination.")
 
-        self._session = None # Release the session object reference
+        self._session = None
         logger.info("LiveConnectManager stopped.")
+
 
     async def send_audio_chunk(self, chunk: bytes):
         """Adds an audio chunk (bytes) to the queue to be sent to Gemini."""
+        # ... (no changes needed in this method) ...
         if self._is_running:
             try:
-                # Consider adding a timeout to put_nowait or using put with timeout
-                # if backpressure is a concern and the queue might get full
                 await self._audio_out_queue.put(chunk)
             except Exception as e:
                  logger.error(f"Failed to put audio chunk in queue: {e}")
@@ -190,6 +196,7 @@ class LiveConnectManager:
 
     async def get_received_audio_chunk(self) -> bytes | None:
         """Gets a received audio chunk (bytes) from Gemini (non-blocking)."""
+        # ... (no changes needed in this method) ...
         try:
             return self._audio_in_queue.get_nowait()
         except asyncio.QueueEmpty:
@@ -197,6 +204,7 @@ class LiveConnectManager:
 
     async def get_transcription(self) -> str | None:
         """Gets transcribed text from Gemini (non-blocking)."""
+        # ... (no changes needed in this method) ...
         try:
             return self._text_out_queue.get_nowait()
         except asyncio.QueueEmpty:
