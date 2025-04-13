@@ -174,8 +174,8 @@ def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_tex
 # Streamlit User Interface Setup
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="ADK GCP Agent", layout="wide")
-st.title("💬 GCP Multi-Agent Demo")
-st.caption("🚀 Powered by Google ADK & Cloud Run")
+st.title("💬 GCP ADK Multi-Agent Demo")
+st.caption("🚀 Powered by Google ADK & Cloud Run\nWritten by @sberthollier and Gemini")
 
 # --- Initialize ADK Runner and Session ---
 try:

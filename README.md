@@ -37,15 +37,15 @@ The system features:
 
 ## Prerequisites
 
-* Python 3.9+
-* [Google Cloud SDK (`gcloud`)](https://cloud.google.com/sdk/docs/install) installed and authenticated.
+* Bash
 * A Google Cloud Project with the following APIs enabled:
     * Compute Engine API
     * BigQuery API
     * Cloud Build API
     * Cloud Run API
     * Artifact Registry API
-* A [Google API Key](https://cloud.google.com/docs/authentication/api-keys) (for ADK interaction with services like Gemini models).
+* A user with Owner role on the project
+* A [Google API Key](https://aistudio.google.com/apikey) (for ADK interaction with Gemini models).
 
 ## Setup
 
