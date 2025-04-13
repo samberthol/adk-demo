@@ -43,6 +43,7 @@ steps:
       # We set the container port Cloud Run should target.
       - '--port=8080'
       - '--allow-unauthenticated' # Adjust as needed
+      - '--memory=2Gi'
       # Pass runtime environment variables. Using GOOGLE_API_KEY now.
       # Ensure all required variables by your agents/tools are included.
       # REMOVED '##PORT=8080' from the end of this line
