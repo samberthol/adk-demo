@@ -13,13 +13,15 @@ import time
 # Assuming live_connect_manager.py is correct and doesn't import pyaudio
 # Need to ensure this import path is correct relative to app.py
 try:
-    from live_connect_manager import LiveConnectManager, SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE
+    # ---> ADD CHANNELS TO THIS IMPORT LIST <---
+    from live_connect_manager import LiveConnectManager, SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE, CHANNELS
 except ImportError:
     # Handle case where the file might be in the same directory or adjust path
     try:
-        from .live_connect_manager import LiveConnectManager, SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE
+        # ---> ADD CHANNELS HERE TOO (for relative import fallback) <---
+        from .live_connect_manager import LiveConnectManager, SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE, CHANNELS
     except ImportError as e:
-         st.error(f"Failed to import LiveConnectManager. Check path and file existence. Error: {e}")
+         st.error(f"Failed to import LiveConnectManager or constants. Check path and file existence. Error: {e}")
          st.stop()
 
 
