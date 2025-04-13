@@ -8,5 +8,4 @@ pandas
 google-api-core
 streamlit-webrtc
 google-genai
-pyaudio 
 numpy
