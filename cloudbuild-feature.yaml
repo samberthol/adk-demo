@@ -1,49 +1,88 @@
 # cloudbuild-feature.yaml
-# ... (previous comments and warnings remain) ...
+# Uses an intermediate file (/workspace/full_image_name.txt) to pass the
+# sanitized image name between build steps, avoiding substitution parsing issues.
+# ==============================================================================
+# IMPORTANT: This file requires ALL substitution variables (starting with _)
+#            to be provided when the build is triggered. No default values
+#            are set here to avoid committing configuration or secrets.
+# ==============================================================================
+# WARNING: This configuration passes GEMINI_API_KEY as an environment variable
+#          to Cloud Run. This is less secure than using Secret Manager.
+#          Provide the key value securely when triggering the build.
+# ==============================================================================
 
 steps:
-  # 1. Build the container image
-  - name: 'gcr.io/cloud-builders/docker'
-    id: Build
+  # Step 0: Prepare Sanitized Image Name and write to file
+  # Uses a standard gcloud image which includes bash, sed, echo.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: PrepareImageName
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         # Sanitize branch name and combine with short SHA for the tag
         SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
-        # Construct the full image name using Cloud Build substitutions and the sanitized tag
-        # Escape the $ for the shell variable SANITIZED_TAG using \$
-        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:\${SANITIZED_TAG}"
-        echo "Building image: ${FULL_IMAGE_NAME}"
-        # Use the fully constructed image name variable
-        docker build -t "${FULL_IMAGE_NAME}" .
+        # Construct the full image name using Cloud Build substitutions
+        # Note: Substitutions like ${_ARTIFACT_REGISTRY_REPO} are correctly resolved here by Cloud Build
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        echo "Calculated image name: ${FULL_IMAGE_NAME}"
+        # Write the full name to a file in the shared workspace, ensuring no trailing newline
+        echo -n "${FULL_IMAGE_NAME}" > /workspace/full_image_name.txt
+        echo "Image name written to /workspace/full_image_name.txt"
 
-  # 2. Push the container image to Google Artifact Registry
+  # Step 1: Build the container image using the name from the file
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Build
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Read the full image name from the file created in the previous step
+        FULL_IMAGE_NAME=$(cat /workspace/full_image_name.txt)
+        # Basic check to ensure the file was read correctly
+        if [ -z "${FULL_IMAGE_NAME}" ]; then
+          echo "Error: Could not read image name from /workspace/full_image_name.txt"
+          exit 1
+        fi
+        echo "Building image: ${FULL_IMAGE_NAME}"
+        # Use the image name read from the file
+        docker build -t "${FULL_IMAGE_NAME}" .
+    # Ensure this step runs only after the image name is prepared
+    waitFor: ['PrepareImageName']
+
+  # Step 2: Push the container image using the name from the file
   - name: 'gcr.io/cloud-builders/docker'
     id: Push
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
-        # Escape the $ for the shell variable SANITIZED_TAG using \$
-        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:\${SANITIZED_TAG}"
+        FULL_IMAGE_NAME=$(cat /workspace/full_image_name.txt)
+        if [ -z "${FULL_IMAGE_NAME}" ]; then
+          echo "Error: Could not read image name from /workspace/full_image_name.txt"
+          exit 1
+        fi
         echo "Pushing image: ${FULL_IMAGE_NAME}"
-        # Use the fully constructed image name variable
+        # Use the image name read from the file
         docker push "${FULL_IMAGE_NAME}"
+    # Ensure this step runs only after the build is complete
+    waitFor: ['Build']
 
-  # 3. Deploy the image to Google Cloud Run
+  # Step 3: Deploy the image to Cloud Run using the name from the file
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
-        # Escape the $ for the shell variable SANITIZED_TAG using \$
-        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:\${SANITIZED_TAG}"
+        FULL_IMAGE_NAME=$(cat /workspace/full_image_name.txt)
+        if [ -z "${FULL_IMAGE_NAME}" ]; then
+          echo "Error: Could not read image name from /workspace/full_image_name.txt"
+          exit 1
+        fi
         echo "Deploying image: ${FULL_IMAGE_NAME}"
-        # Use the fully constructed image name variable in the --image flag
+        # Use the image name read from the file in the --image flag
+        # Other Cloud Build substitutions (_SERVICE_NAME_FEATURE, _REGION, _GEMINI_API_KEY etc.) are still resolved correctly by Cloud Build
         gcloud run deploy "${_SERVICE_NAME_FEATURE}" \
           --image="${FULL_IMAGE_NAME}" \
           --region="${_REGION}" \
@@ -52,6 +91,8 @@ steps:
           --allow-unauthenticated \
           --set-env-vars="^##^GEMINI_API_KEY=${_GEMINI_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}' \
           --quiet
+    # Ensure this step runs only after the push is complete
+    waitFor: ['Push']
 
 # images section remains the same
 images:
