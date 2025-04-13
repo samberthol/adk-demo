@@ -146,136 +146,123 @@ html = """
     </head>
     <body>
         <h1>WebSocket Audio Streaming (Gemini Live & ADK Agent)</h1>
-        <p>Status: <span id="status">Not Connected</span></p>
-        <button id="start">Start Recording</button>
+        <p>Status: <span id="status">Initializing</span></p> <button id="start">Start Recording</button>
         <button id="stop" disabled>Stop Recording</button>
         <h2>Agent Interaction:</h2>
         <div id="interaction" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"></div>
         <script>
-            const wsUri = `ws://${location.host}/ws/audio_gemini`;
+            // --- MODIFIED SCRIPT ---
+            const statusSpan = document.getElementById('status');
+            const interactionDiv = document.getElementById('interaction');
+            const startButton = document.getElementById('start');
+            const stopButton = document.getElementById('stop');
             let websocket;
             let mediaRecorder;
             let audioChunks = [];
-            const startButton = document.getElementById('start');
-            const stopButton = document.getElementById('stop');
-            const statusSpan = document.getElementById('status');
-            const interactionDiv = document.getElementById('interaction');
 
             function logInteraction(message, type = 'info') {
+                // ... (logInteraction function remains the same) ...
                 const p = document.createElement('p');
                 let prefix = '';
-                 if (type === 'user') prefix = '<strong>You:</strong> ';
-                 else if (type === 'agent') prefix = '<strong>Agent:</strong> ';
-                 else if (type === 'system') prefix = '<em>System:</em> ';
-                 else if (type === 'interim') prefix = '<em>You (interim):</em> ';
-                p.innerHTML = prefix + message; //.replace(/</g, "&lt;").replace(/>/g, "&gt;"); // Basic sanitization
+                if (type === 'user') prefix = '<strong>You:</strong> ';
+                else if (type === 'agent') prefix = '<strong>Agent:</strong> ';
+                else if (type === 'system') prefix = '<em>System:</em> ';
+                else if (type === 'interim') prefix = '<em>You (interim):</em> ';
+                p.innerHTML = prefix + message;
                 interactionDiv.appendChild(p);
-                interactionDiv.scrollTop = interactionDiv.scrollHeight; // Auto-scroll
+                interactionDiv.scrollTop = interactionDiv.scrollHeight;
                 console.log(`${type}: ${message}`);
             }
 
             function connectWebSocket() {
-                logInteraction("Attempting WebSocket connection...", 'system');
-                websocket = new WebSocket(wsUri);
+                // --- Use wss:// for secure connections ---
+                const wsUri = `wss://${location.host}/ws/audio_gemini`;
+                logInteraction(`Attempting WebSocket connection to: ${wsUri}`, 'system');
+                statusSpan.textContent = "Connecting...";
+                startButton.disabled = true; // Disable until connection opens
 
-                websocket.onopen = function(evt) {
-                    statusSpan.textContent = "Connected";
-                    logInteraction("WebSocket Connected. Ready to record.", 'system');
-                    startButton.disabled = false;
-                 };
-                 websocket.onclose = function(evt) {
-                    statusSpan.textContent = "Disconnected";
-                    logInteraction(`WebSocket Disconnected: Code=${evt.code}, Reason=${evt.reason || 'N/A'}`, 'system');
-                    startButton.disabled = true; // Or re-enable connect button if you add one
-                    stopButton.disabled = true;
-                    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                        mediaRecorder.stop();
-                    }
-                 };
-                 websocket.onerror = function(evt) {
-                    statusSpan.textContent = "Error";
-                    logInteraction('WebSocket Error. See console.', 'system');
-                    console.error('WebSocket Error:', evt);
-                    startButton.disabled = true;
-                    stopButton.disabled = true;
-                 };
-                 websocket.onmessage = function(evt) {
-                     // Expect JSON messages from the server
-                     try {
-                         const msg = JSON.parse(evt.data);
-                         if (msg.type === 'interim_transcript') {
-                             // Optionally display interim results differently or update a specific element
-                             logInteraction(msg.transcript, 'interim');
-                         } else if (msg.type === 'final_transcript') {
-                              logInteraction(msg.transcript, 'user');
-                         } else if (msg.type === 'agent_response') {
-                              logInteraction(msg.response, 'agent');
-                         } else if (msg.type === 'status' || msg.type === 'info') {
-                              logInteraction(msg.message, 'system');
-                         } else if (msg.type === 'error') {
-                              logInteraction(`Error: ${msg.message}`, 'system');
-                         } else {
-                             logInteraction(`Unknown message type: ${JSON.stringify(msg)}`, 'system');
-                         }
-                     } catch (e) {
-                         logInteraction(`Received non-JSON message or parse error: ${evt.data}`, 'system');
-                         console.error("Failed to parse message:", e);
-                     }
-                 };
+                try {
+                    websocket = new WebSocket(wsUri);
+
+                    websocket.onopen = function(evt) {
+                        statusSpan.textContent = "Connected";
+                        logInteraction("WebSocket Connected. Ready to record.", 'system');
+                        startButton.disabled = false; // Enable recording button
+                    };
+                    websocket.onclose = function(evt) {
+                        statusSpan.textContent = "Disconnected";
+                        logInteraction(`WebSocket Disconnected: Code=<span class="math-inline">\{evt\.code\}, Reason\=</span>{evt.reason || 'N/A'}, WasClean=${evt.wasClean}`, 'system');
+                        startButton.disabled = true;
+                        stopButton.disabled = true;
+                        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                            mediaRecorder.stop();
+                        }
+                    };
+                    websocket.onerror = function(evt) {
+                        statusSpan.textContent = "Error";
+                        // Log the event object itself to the console for more details
+                        logInteraction('WebSocket Error occurred. See browser console.', 'system');
+                        console.error('WebSocket Error:', evt);
+                        startButton.disabled = true;
+                        stopButton.disabled = true;
+                    };
+                    websocket.onmessage = function(evt) {
+                       // ... (onmessage handling remains the same) ...
+                       try {
+                           const msg = JSON.parse(evt.data);
+                           if (msg.type === 'interim_transcript') logInteraction(msg.transcript, 'interim');
+                           else if (msg.type === 'final_transcript') logInteraction(msg.transcript, 'user');
+                           else if (msg.type === 'agent_response') logInteraction(msg.response, 'agent');
+                           else if (msg.type === 'status' || msg.type === 'info') logInteraction(msg.message, 'system');
+                           else if (msg.type === 'error') logInteraction(`Error: ${msg.message}`, 'system');
+                           else logInteraction(`Unknown message type: ${JSON.stringify(msg)}`, 'system');
+                       } catch (e) {
+                           logInteraction(`Received non-JSON message or parse error: ${evt.data}`, 'system');
+                           console.error("Failed to parse message:", e);
+                       }
+                    };
+                } catch (err) {
+                     statusSpan.textContent = "Error";
+                     logInteraction(`Error creating WebSocket: ${err}`, 'system');
+                     console.error("Error creating WebSocket:", err);
+                     startButton.disabled = true;
+                     stopButton.disabled = true;
+                }
             }
 
             startButton.onclick = async () => {
+                // ... (onclick handler remains the same) ...
                 if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                    logInteraction("WebSocket not open. Cannot start recording.", 'system');
-                    return;
+                     logInteraction("WebSocket not open. Cannot start recording.", 'system');
+                     return;
                 }
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    // Use a common MIME type, server must handle transcoding
                     const options = { mimeType: 'audio/webm;codecs=opus' };
                     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                         // Fallback or error
-                         logInteraction(`Error: Browser does not support ${options.mimeType}. Try 'audio/ogg;codecs=opus'?`, 'system');
-                         // Example: options = { mimeType: 'audio/ogg;codecs=opus' };
-                         // if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                         //    logInteraction(`Error: Fallback mimeType also not supported. Cannot record.`, 'system');
-                         //    return;
-                         // }
-                         return; // Stop if primary mimeType fails
+                         logInteraction(`Error: Browser does not support ${options.mimeType}.`, 'system');
+                         return;
                     }
                     mediaRecorder = new MediaRecorder(stream, options);
                     audioChunks = [];
-
                     mediaRecorder.ondataavailable = (event) => {
                         if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
-                            // Send audio chunk as binary data
                             websocket.send(event.data);
-                            // console.debug(`Sent audio chunk: ${event.data.size} bytes`);
                         }
                     };
-
                     mediaRecorder.onstop = () => {
                         logInteraction("Recording stopped.", 'system');
                         startButton.disabled = false;
                         stopButton.disabled = true;
-                        // Signal end of audio stream to backend explicitly
                         if (websocket && websocket.readyState === WebSocket.OPEN) {
-                             try {
-                               websocket.send(JSON.stringify({ "type": "control", "action": "stop_audio" }));
-                               logInteraction("End of audio signal sent.", 'system');
-                             } catch (e) {
-                                console.error("Error sending stop_audio signal:", e);
-                             }
+                             try { websocket.send(JSON.stringify({ "type": "control", "action": "stop_audio" })); } catch (e) { console.error("Error sending stop_audio:", e); }
                         }
-                        stream.getTracks().forEach(track => track.stop()); // Release microphone
+                        stream.getTracks().forEach(track => track.stop());
                     };
-
-                    // Start recording, send data periodically
-                    mediaRecorder.start(250); // Send ~4 chunks per second
+                    mediaRecorder.start(250);
                     logInteraction("Recording started...", 'system');
                     startButton.disabled = true;
                     stopButton.disabled = false;
-
                 } catch (err) {
                     logInteraction("Error accessing microphone or starting recorder: " + err, 'system');
                      console.error("Mic/Recorder Error:", err);
@@ -283,14 +270,15 @@ html = """
             };
 
             stopButton.onclick = () => {
+                // ... (stopButton onclick remains the same) ...
                 if (mediaRecorder && mediaRecorder.state === 'recording') {
-                    mediaRecorder.stop(); // This triggers onstop, which sends the signal
+                     mediaRecorder.stop();
                 }
             };
 
             // Initial connection attempt when page loads
             connectWebSocket();
-
+            // --- END MODIFIED SCRIPT ---
         </script>
     </body>
 </html>
