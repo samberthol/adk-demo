@@ -77,7 +77,7 @@ steps:
       - '--quiet'
     # Depends only on the image push (can run in parallel with Streamlit deploy)
     waitFor: ['Push']
-
+ 
 
 # images section: List the image tagged with SHORT_SHA
 images:
