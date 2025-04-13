@@ -11,3 +11,4 @@ nest-asyncio
 fastapi
 uvicorn[standard]
 google-generativeai
+requests

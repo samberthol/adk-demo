@@ -1,3 +1,4 @@
+# Dockerfile (Corrected pip install)
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
@@ -6,7 +7,7 @@ WORKDIR /app
 
 # Install system dependencies
 # - ffmpeg is needed for audio transcoding in the FastAPI app
-# - git is sometimes needed for pip installs from repos (though not strictly required by current requirements.txt)
+# - git is sometimes needed for pip installs from repos
 # - tini is a simple init system to handle zombie processes and signals
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -19,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # Install any needed packages specified in requirements.txt
-# Add --no-cache-dir to reduce image size
-# Add ffmpeg-python for transcoding
+# This now includes requests, gunicorn, ffmpeg-python should also be added if needed by api.py
+# Assuming gunicorn needed for start.sh, ffmpeg-python for api.py
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir gunicorn ffmpeg-python
 
