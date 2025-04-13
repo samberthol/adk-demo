@@ -6,7 +6,7 @@ set -e
 # --- Load .env file if it exists ---
 if [ -f .env ]; then
   echo "Loading environment variables from .env file..."
-  set -a
+  set -a # Automatically export all variables
   source .env
   set +a
 else
@@ -14,31 +14,39 @@ else
 fi
 # --- End loading .env file ---
 
-# --- Check GOOGLE_API_KEY ---
-if [ -z "$GOOGLE_API_KEY" ]; then
-  echo "Error: GOOGLE_API_KEY environment variable is not set."
-  echo "Please set it in the .env file or export it externally."
+# --- Check Required Environment Variables ---
+REQUIRED_VARS=("GOOGLE_API_KEY" "GCP_PROJECT_ID" "REGION" "REPO_ID" "SERVICE_NAME" "IMAGE_TAG")
+MISSING_VARS=()
+for VAR_NAME in "${REQUIRED_VARS[@]}"; do
+  if [ -z "${!VAR_NAME}" ]; then # Use indirect expansion to check variable
+    MISSING_VARS+=("$VAR_NAME")
+  fi
+done
+
+if [ ${#MISSING_VARS[@]} -ne 0 ]; then
+  echo "Error: The following required environment variables are not set:"
+  for VAR_NAME in "${MISSING_VARS[@]}"; do
+    echo "  - $VAR_NAME"
+  done
+  echo "Please set them in the .env file or export them externally."
   exit 1
 fi
 # --- End Check ---
 
-# --- Define and Check GCP_PROJECT_ID ---
-if [ -z "$GCP_PROJECT_ID" ]; then
-  echo "Error: GCP_PROJECT_ID environment variable is not set."
-  echo "Please set it in the .env file or export it externally."
-  exit 1
-fi
 echo "Using GCP Project ID: $GCP_PROJECT_ID"
-# --- End Check ---
+echo "Using Region: $REGION"
+echo "Using Repository ID: $REPO_ID"
+echo "Using Service Name: $SERVICE_NAME"
+echo "Using Image Tag: $IMAGE_TAG"
 
-# Some default values
-REGION="us-central1"
-REPO_ID="adk-agent-images"
-SERVICE_NAME="adk-multi-agent-demo"
-IMAGE_TAG="latest"
+
+# Construct IMAGE_URI using environment variables
 IMAGE_URI="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPO_ID}/${SERVICE_NAME}:${IMAGE_TAG}"
+echo "Using Image URI: $IMAGE_URI"
+
 
 echo "Starting Cloud Build..."
+# Pass variables from environment to Cloud Build substitutions
 gcloud builds submit . --config=cloudbuild.yaml \
   --project=${GCP_PROJECT_ID} \
   --substitutions=_REGION=${REGION},_REPO_ID=${REPO_ID},_SERVICE_NAME=${SERVICE_NAME},_IMAGE_TAG=${IMAGE_TAG}
@@ -52,6 +60,6 @@ gcloud run deploy ${SERVICE_NAME} \
   --port=8080 \
   --allow-unauthenticated \
   --project=${GCP_PROJECT_ID} \
-  --set-env-vars "GOOGLE_API_KEY=${GOOGLE_API_KEY}"
+  --set-env-vars "GOOGLE_API_KEY=${GOOGLE_API_KEY}" # Pass API key securely
 
 echo "Deployment command finished."
