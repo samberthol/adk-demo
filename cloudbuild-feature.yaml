@@ -1,43 +1,48 @@
 # cloudbuild-feature.yaml
+# ... (previous comments and warnings remain) ...
 
 steps:
   # 1. Build the container image
   - name: 'gcr.io/cloud-builders/docker'
     id: Build
-    # Use bash to sanitize the branch name before building
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Replace '/' with '-' in BRANCH_NAME for a valid Docker tag
-        SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
-        echo "Building image with sanitized tag: ${SANITIZED_BRANCH_NAME}-${SHORT_SHA}"
-        docker build -t "${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_BRANCH_NAME}-${SHORT_SHA}" .
+        # Sanitize branch name and combine with short SHA for the tag
+        SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
+        # Construct the full image name using Cloud Build substitutions and the sanitized tag
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        echo "Building image: ${FULL_IMAGE_NAME}"
+        # Use the fully constructed image name variable
+        docker build -t "${FULL_IMAGE_NAME}" .
 
   # 2. Push the container image to Google Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     id: Push
-    # Use bash to sanitize the branch name again for pushing the correct tag
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
-        echo "Pushing image with sanitized tag: ${SANITIZED_BRANCH_NAME}-${SHORT_SHA}"
-        docker push "${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_BRANCH_NAME}-${SHORT_SHA}"
+        SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        echo "Pushing image: ${FULL_IMAGE_NAME}"
+        # Use the fully constructed image name variable
+        docker push "${FULL_IMAGE_NAME}"
 
   # 3. Deploy the image to Google Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy
-    # Use bash to construct the correct image name for deployment
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        SANITIZED_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's|/|-|g')
-        echo "Deploying image with sanitized tag: ${SANITIZED_BRANCH_NAME}-${SHORT_SHA}"
+        SANITIZED_TAG=$(echo "${BRANCH_NAME}" | sed 's|/|-|g')-${SHORT_SHA}
+        FULL_IMAGE_NAME="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_TAG}"
+        echo "Deploying image: ${FULL_IMAGE_NAME}"
+        # Use the fully constructed image name variable in the --image flag
         gcloud run deploy "${_SERVICE_NAME_FEATURE}" \
-          --image="${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SANITIZED_BRANCH_NAME}-${SHORT_SHA}" \
+          --image="${FULL_IMAGE_NAME}" \
           --region="${_REGION}" \
           --platform=managed \
           --port=8080 \
@@ -45,15 +50,11 @@ steps:
           --set-env-vars="^##^GEMINI_API_KEY=${_GEMINI_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}' \
           --quiet
 
-# List the images built by this pipeline
-# NOTE: The 'images' section is declarative and cannot run the sanitization.
-# Cloud Build might not automatically track the image with the sanitized tag here
-# for things like vulnerability scanning unless explicitly configured.
-# We are removing the specific tag here for simplicity, as the push step handles the correct tag.
+# images section remains the same (listing base image name)
 images:
-  - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}' # List only the base image name
+  - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}'
 
-# Substitutions section remains the same (values must be provided at trigger time)
+# substitutions section remains the same (values must be provided at trigger time)
 substitutions:
   _GCP_PROJECT_ID: ''
   _REGION: ''
