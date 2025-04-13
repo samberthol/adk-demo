@@ -1,0 +1,89 @@
+# cloudbuild-feature.yaml
+# Cloud Build configuration for deploying feature branches.
+# ==============================================================================
+# IMPORTANT: This file requires ALL substitution variables (starting with _)
+#            to be provided when the build is triggered. No default values
+#            are set here to avoid committing configuration or secrets.
+# ==============================================================================
+# WARNING: This configuration passes GEMINI_API_KEY as an environment variable
+#          to Cloud Run. This is less secure than using Secret Manager.
+#          Provide the key value securely when triggering the build.
+# ==============================================================================
+
+steps:
+  # 1. Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Build
+    args:
+      - 'build'
+      - '-t'
+      # Uses calculated _ARTIFACT_REGISTRY_REPO substitution (values provided at trigger time)
+      - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${BRANCH_NAME}-${SHORT_SHA}'
+      - '.'
+
+  # 2. Push the container image to Google Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Push
+    args:
+      - 'push'
+      - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${BRANCH_NAME}-${SHORT_SHA}'
+
+  # 3. Deploy the image to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      # Service name provided via substitution at trigger time
+      - '${_SERVICE_NAME_FEATURE}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${BRANCH_NAME}-${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--port=8080'
+      - '--allow-unauthenticated' # Adjust as needed
+      # Pass runtime environment variables (values provided via substitutions at trigger time)
+      # WARNING: Includes GEMINI_API_KEY directly. Provide value securely when triggering.
+      - '--set-env-vars=^##^GEMINI_API_KEY=${_GEMINI_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
+      # Optional: Specify the runtime service account
+      # - '--service-account=${_VM_DEFAULT_SERVICE_ACCOUNT}'
+      - '--quiet'
+
+# List the images built by this pipeline
+images:
+  # Uses calculated _ARTIFACT_REGISTRY_REPO substitution
+  - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${BRANCH_NAME}-${SHORT_SHA}'
+
+# Substitution variables expected to be provided when triggering the build.
+# NO DEFAULT VALUES are defined in this file.
+substitutions:
+  # --- Core GCP/Build values ---
+  _GCP_PROJECT_ID: '' # MUST PROVIDE e.g., hostproject1-355311
+  _REGION: '' # MUST PROVIDE e.g., us-central1
+  _REPO_ID: '' # MUST PROVIDE e.g., adk-agent-images
+  _IMAGE_NAME: '' # MUST PROVIDE e.g., adk-multi-agent
+  _SERVICE_NAME_FEATURE: '' # MUST PROVIDE e.g., adk-multi-agent-feature
+
+  # --- Runtime environment variables ---
+  # WARNING: Provide API Key securely during trigger setup / command execution.
+  _GEMINI_API_KEY: '' # MUST PROVIDE API Key - SENSITIVE
+  _AGENT_MODEL_NAME: '' # MUST PROVIDE e.g., gemini-2.0-flash
+  _BQ_DEFAULT_LOCATION: '' # MUST PROVIDE e.g., US
+  _VM_DEFAULT_ZONE: '' # MUST PROVIDE e.g., us-central1-c
+  _VM_DEFAULT_INSTANCE_NAME: '' # MUST PROVIDE e.g., instance-via-adk-feature
+  _VM_DEFAULT_MACHINE_TYPE: '' # MUST PROVIDE e.g., e2-medium
+  _VM_DEFAULT_SOURCE_IMAGE: '' # MUST PROVIDE e.g., projects/debian-cloud/global/images/debian-12-bookworm-v20250311
+  _VM_DEFAULT_DISK_SIZE_GB: '' # MUST PROVIDE e.g., 10
+  _VM_DEFAULT_DISK_TYPE: '' # MUST PROVIDE e.g., pd-balanced
+  _VM_DEFAULT_SUBNETWORK: '' # MUST PROVIDE e.g., subnet-central1
+  _VM_DEFAULT_SERVICE_ACCOUNT: '' # MUST PROVIDE e.g., 1061467223298-compute@developer.gserviceaccount.com
+
+  # --- Calculated values (leave definition here) ---
+  # Defines how the registry path is constructed from other provided variables.
+  _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
+
+  # BRANCH_NAME and SHORT_SHA are automatically provided by Cloud Build when run from a repo context.
+
+# Cloud Build options
+options:
+  logging: CLOUD_LOGGING_ONLY

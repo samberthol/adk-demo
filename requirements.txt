@@ -3,7 +3,10 @@ streamlit
 google-cloud-bigquery
 google-cloud-compute
 google-auth
-google-adk # <--- Add this line
+google-adk
 pandas
 google-api-core
-# Add any other libraries your agents/tools use
+streamlit-webrtc
+google-genai
+pyaudio 
+numpy

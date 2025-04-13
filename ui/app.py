@@ -1,225 +1,295 @@
-# ui/app.py
 import streamlit as st
-import os
-import sys
-from pathlib import Path
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase, ClientSettings
+import numpy as np
 import asyncio
-import uuid
-import time
+import threading
+import queue # Use standard queue for thread-safe communication
+import av # PyAV library used by streamlit-webrtc
 import logging
+import time
 
-# Add project root to Python path to allow importing agent modules
-project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.append(project_root)
+from live_connect_manager import LiveConnectManager, SEND_SAMPLE_RATE, RECEIVE_SAMPLE_RATE # Import manager and constants
 
-# Import necessary ADK components and the agent
-try:
-    from agents.meta.agent import meta_agent
-    from google.adk.runners import Runner
-    # Use InMemorySessionService as requested
-    from google.adk.sessions import InMemorySessionService, Session
-    from google.genai.types import Content, Part
-except ImportError as e:
-    st.error(f"Failed to import agent modules or ADK components. Ensure project structure and requirements are correct. Error: {e}")
-    st.stop()
-
-# Configure logging level (ERROR hides most ADK logs, INFO shows more detail)
+# Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-APP_NAME = "gcp_multi_agent_demo"
-USER_ID = f"streamlit_user_{APP_NAME}"
-ADK_SESSION_STATE_KEY = f'adk_session_id_{APP_NAME}'
+# Client settings for WebRTC (can be adjusted)
+WEBRTC_CLIENT_SETTINGS = ClientSettings(
+    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+    media_stream_constraints={"audio": True, "video": False},
+)
 
+# Thread-safe queues for communication between Streamlit thread and Asyncio thread
+# Max sizes can be adjusted based on performance/memory
+audio_to_send_queue = queue.Queue(maxsize=10)
+audio_to_play_queue = queue.Queue(maxsize=10)
+text_received_queue = queue.Queue(maxsize=10)
 
-# --------------------------------------------------------------------------
-# ADK Initialization Logic (inspired by the article)
-# --------------------------------------------------------------------------
-@st.cache_resource
-def initialize_adk():
-    """
-    Initializes the ADK Runner and InMemorySessionService for the application.
-    Manages the unique ADK session ID within the Streamlit session state.
-    Includes check and recreation logic for InMemorySessionService.
+# --- Asyncio Event Loop Management ---
+# We run the asyncio part in a separate thread
+_event_loop = None
+_loop_thread = None
+_manager_instance = None
 
-    Returns:
-        tuple: (Runner instance, active ADK session ID)
-    """
-    logging.info("--- ADK Init: Attempting to initialize Runner and Session Service... ---")
-    session_service = InMemorySessionService()
-    logging.info("--- ADK Init: InMemorySessionService instantiated. ---")
+def get_asyncio_loop():
+    global _event_loop
+    if _event_loop is None:
+        _event_loop = asyncio.new_event_loop()
+    return _event_loop
 
-    runner = Runner(
-        agent=meta_agent,
-        app_name=APP_NAME,
-        session_service=session_service
-    )
-    logging.info(f"--- ADK Init: Runner instantiated for agent '{meta_agent.name}'. ---")
-
-    # Manage ADK session ID within Streamlit's session state
-    if ADK_SESSION_STATE_KEY not in st.session_state:
-        session_id = f"session_{APP_NAME}_{int(time.time())}_{os.urandom(4).hex()}"
-        st.session_state[ADK_SESSION_STATE_KEY] = session_id
-        logging.info(f"--- ADK Init: Generated new ADK session ID: {session_id} ---")
-        try:
-            # Create the session record in the service (assuming sync or handles internally)
-            # Note: Session service methods might ideally be async, requiring `await`
-            # and an async `initialize_adk`. Using sync calls based on article's apparent pattern.
-            session_service.create_session(
-                app_name=APP_NAME,
-                user_id=USER_ID,
-                session_id=session_id,
-                state={}
-            )
-            logging.info("--- ADK Init: Successfully created new session in ADK SessionService.")
-        except Exception as e:
-            logging.exception("--- ADK Init: FATAL ERROR - Could not create initial session in ADK SessionService:")
-            raise # Stop execution if session can't be created
-    else:
-        session_id = st.session_state[ADK_SESSION_STATE_KEY]
-        logging.info(f"--- ADK Init: Reusing existing ADK session ID from Streamlit state: {session_id} ---")
-        try:
-            # **Important Check for InMemorySessionService**:
-            # Check if the session actually exists in the service's memory.
-            # Assuming get_session might return None or raise error if not found (adjust based on actual ADK behavior)
-            existing_session = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
-
-            if not existing_session:
-                logging.warning(f"--- ADK Init: Session {session_id} not found in InMemorySessionService memory (likely due to script restart). Recreating session. State will be lost. ---")
-                try:
-                    # Recreate the session record in the service. State resets to empty.
-                    session_service.create_session(
-                        app_name=APP_NAME,
-                        user_id=USER_ID,
-                        session_id=session_id,
-                        state={}
-                    )
-                    logging.info(f"--- ADK Init: Successfully recreated session {session_id} in ADK SessionService.")
-                except Exception as e_recreate:
-                    logging.exception(f"--- ADK Init: ERROR - Could not recreate missing session {session_id} in ADK SessionService:")
-                    # Depending on requirements, raise error or proceed carefully
-            else:
-                 logging.info(f"--- ADK Init: Session {session_id} successfully found in SessionService memory.")
-
-        except Exception as e_get:
-             # Handle potential errors during get_session itself
-             logging.error(f"--- ADK Init: Error trying to get session {session_id} from service: {e_get} ---")
-             # Decide how to proceed - maybe attempt recreation or raise? For now, log and continue.
+def start_asyncio_thread():
+    global _loop_thread, _manager_instance
+    if _loop_thread is None or not _loop_thread.is_alive():
+        loop = get_asyncio_loop()
+        _manager_instance = LiveConnectManager() # Create manager instance here
+        _loop_thread = threading.Thread(target=run_async_tasks, args=(loop, _manager_instance), daemon=True)
+        _loop_thread.start()
+        logger.info("Asyncio thread started.")
+        # Give the loop a moment to start
+        time.sleep(0.5)
 
 
-    logging.info(f"--- ADK Init: Initialization sequence complete. Runner is ready. Active Session ID: {session_id} ---")
-    return runner, session_id
-
-
-# --------------------------------------------------------------------------
-# Async Runner Function
-# --------------------------------------------------------------------------
-async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> str:
-    """
-    Asynchronously executes one turn of the ADK agent conversation.
-    """
-    logging.info(f"\n--- ADK Run: Starting async execution for session {session_id} ---")
-    logging.info(f"--- ADK Run: Processing User Query (truncated): '{user_message_text[:150]}...' ---")
-    content = Content(
-        role='user',
-        parts=[Part(text=user_message_text)]
-    )
-    final_response_text = "[Agent encountered an issue and did not produce a final response]"
-    start_time = time.time()
+def run_async_tasks(loop, manager):
+    asyncio.set_event_loop(loop)
     try:
-        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-            if event.is_final_response():
-                logging.info("--- ADK Run: Final response event received.")
-                if event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
-                    final_response_text = event.content.parts[0].text
-                else:
-                    final_response_text = "[Agent finished but produced no text output]"
-                    logging.warning(f"--- ADK Run: Final event received, but no text content found. Event: {event}")
-                break
-            else:
-                 pass # Ignoring intermediate events for now
+        loop.run_until_complete(async_task_manager(manager))
+    finally:
+        loop.close()
+        logger.info("Asyncio loop closed.")
 
+async def async_task_manager(manager: LiveConnectManager):
+    """Manages starting the session and processing queues."""
+    try:
+        await manager.start_session()
+        # Start queue processing tasks
+        sender_task = asyncio.create_task(process_audio_to_send(manager))
+        receiver_task = asyncio.create_task(process_received_data(manager))
+        await asyncio.gather(sender_task, receiver_task)
     except Exception as e:
-        logging.exception("--- ADK Run: !! EXCEPTION during agent execution:")
-        final_response_text = f"Sorry, an error occurred while processing your request. Please check the logs or try again later. (Error: {e})"
+         logger.error(f"Error in async_task_manager: {e}", exc_info=True)
+    finally:
+        logger.info("Stopping session from async_task_manager...")
+        # Ensure session stops even if tasks fail
+        if manager._is_running:
+             await manager.stop_session()
 
-    end_time = time.time()
-    duration = end_time - start_time
-    logging.info(f"--- ADK Run: Turn execution completed in {duration:.2f} seconds.")
-    logging.info(f"--- ADK Run: Final Response (truncated): '{final_response_text[:150]}...' ---")
-    return final_response_text
 
-# --------------------------------------------------------------------------
-# Sync Wrapper for Streamlit
-# --------------------------------------------------------------------------
-def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> str:
-    """
-    Synchronous wrapper that executes the asynchronous run_adk_async function.
-    """
-    # Handle potential asyncio event loop issues within Streamlit
-    try:
-        return asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
-    except RuntimeError as e:
-        if "cannot run nested" in str(e):
-            # If nested loop error, try using nest_asyncio
-            logging.warning("Asyncio nested loop detected. Applying nest_asyncio.")
-            import nest_asyncio
-            nest_asyncio.apply()
-            return asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
-        else:
-            logging.exception("Unhandled RuntimeError during asyncio.run:")
-            raise e
+async def process_audio_to_send(manager: LiveConnectManager):
+    """Task to get audio from thread-safe queue and send via manager."""
+    while manager._is_running:
+        try:
+            # Use asyncio.to_thread for blocking queue.get
+            chunk = await asyncio.to_thread(audio_to_send_queue.get, timeout=0.1)
+            if chunk is None: # Stop signal
+                break
+            await manager.send_audio_chunk(chunk)
+            audio_to_send_queue.task_done()
+        except queue.Empty:
+            await asyncio.sleep(0.01) # Prevent busy-waiting
+        except Exception as e:
+            logger.error(f"Error sending audio chunk: {e}")
+            await asyncio.sleep(0.1)
 
-# --------------------------------------------------------------------------
-# Streamlit User Interface Setup
-# --------------------------------------------------------------------------
-st.set_page_config(page_title="ADK GCP Agent", layout="wide")
-st.title("💬 GCP ADK Multi-Agent Demo")
-st.caption("🚀 Powered by Google ADK & Cloud Run\nWritten by @sberthollier and Gemini")
+async def process_received_data(manager: LiveConnectManager):
+     """Task to get data from manager queues and put into thread-safe queues."""
+     while manager._is_running:
+        try:
+             audio_chunk = await manager.get_received_audio_chunk()
+             if audio_chunk:
+                 try:
+                     audio_to_play_queue.put_nowait(audio_chunk)
+                 except queue.Full:
+                     logger.warning("Audio playback queue full, dropping chunk.")
 
-# --- Initialize ADK Runner and Session ---
-try:
-    adk_runner, current_adk_session_id = initialize_adk()
-    st.sidebar.success(f"ADK Initialized\nSession: ...{current_adk_session_id[-12:]}", icon="✅")
-except Exception as e:
-    st.error(f"**Fatal Error:** Could not initialize the ADK Runner or Session Service: {e}", icon="❌")
-    st.error("Please check the terminal logs for more details, ensure your API key is valid (if needed), and restart the application.")
-    logging.exception("Critical ADK Initialization failed in Streamlit UI context.")
-    st.stop() # Stop the app if ADK fails to initialize
+             text_chunk = await manager.get_transcription()
+             if text_chunk:
+                 try:
+                      text_received_queue.put_nowait(text_chunk)
+                 except queue.Full:
+                      logger.warning("Text display queue full, dropping text.")
 
-# --- Chat Interface Implementation ---
-message_history_key = f"messages_{APP_NAME}"
-if message_history_key not in st.session_state:
-    st.session_state[message_history_key] = [{"role": "assistant", "content": "Hello! How can I help you manage GCP resources or query data today?"}]
+             await asyncio.sleep(0.01) # Small sleep to yield control
+        except Exception as e:
+             logger.error(f"Error processing received data: {e}")
+             await asyncio.sleep(0.1)
 
-for message in st.session_state[message_history_key]:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"], unsafe_allow_html=False)
 
-if prompt := st.chat_input("Enter your request (e.g., 'Create a VM named my-vm in us-central1' or 'Query dataset X')"):
-    st.session_state[message_history_key].append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt, unsafe_allow_html=False)
+def stop_asyncio_thread():
+    global _event_loop, _loop_thread, _manager_instance
+    if _loop_thread and _loop_thread.is_alive() and _event_loop and _event_loop.is_running() and _manager_instance:
+        logger.info("Requesting asyncio thread stop...")
+        # Signal the manager to stop via the event loop
+        asyncio.run_coroutine_threadsafe(_manager_instance.stop_session(), _event_loop)
+        # Signal the sender queue processing task to stop
+        audio_to_send_queue.put(None)
 
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        with st.spinner("Agent is thinking..."):
-            try:
-                agent_response = run_adk_sync(adk_runner, current_adk_session_id, USER_ID, prompt)
-                message_placeholder.markdown(agent_response, unsafe_allow_html=False)
-            except Exception as e:
-                error_msg = f"Sorry, an error occurred while getting the agent response: {e}"
-                st.error(error_msg)
-                agent_response = f"Error: Failed to get response. {e}" # Store simplified error in history
-                logging.exception("Error occurred within the Streamlit chat input processing block.")
+        _loop_thread.join(timeout=5.0) # Wait for thread to finish
+        if _loop_thread.is_alive():
+             logger.warning("Asyncio thread did not stop gracefully.")
+    else:
+         logger.info("Asyncio thread already stopped or not running.")
 
-    st.session_state[message_history_key].append({"role": "assistant", "content": agent_response})
-    st.rerun() # Explicitly rerun to update the chat display immediately
+    _loop_thread = None
+    _event_loop = None
+    _manager_instance = None
+    # Clear queues
+    while not audio_to_send_queue.empty(): audio_to_send_queue.get_nowait()
+    while not audio_to_play_queue.empty(): audio_to_play_queue.get_nowait()
+    while not text_received_queue.empty(): text_received_queue.get_nowait()
 
-# --- Sidebar Information ---
-st.sidebar.divider()
-st.sidebar.header("Agent Details")
-st.sidebar.caption(f"**Agent Name:** `{meta_agent.name}`")
-st.sidebar.caption(f"**App Name:** `{APP_NAME}`")
-st.sidebar.caption(f"**User ID:** `{USER_ID}`")
-st.sidebar.caption(f"**ADK Session ID:** `{st.session_state.get(ADK_SESSION_STATE_KEY, 'N/A')}`")
+
+# --- Streamlit Audio Processor ---
+class LiveConnectAudioProcessor(AudioProcessorBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self._buffer = bytearray()
+        # Required samples per frame for LiveConnect input (16kHz mono)
+        # Calculate bytes per frame: 10ms frame duration at 16kHz, 16-bit mono
+        self._target_chunk_size = int(SEND_SAMPLE_RATE * 1 * 2 * 0.010) # ~320 bytes
+        logger.info(f"Target chunk size for sending: {self._target_chunk_size} bytes")
+
+
+    async def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+        """Processes audio frames from WebRTC, sends to LiveConnect, returns audio for playback."""
+        # Ensure the asyncio thread is running
+        start_asyncio_thread()
+
+        # 1. Process incoming audio frame (Resample to SEND_SAMPLE_RATE if needed)
+        try:
+            # Resample the frame to the sample rate LiveConnect expects (SEND_SAMPLE_RATE)
+            # PyAV's resampler can be complex; direct conversion might be simpler if rates match or close
+            # Assuming input frame is already PCM S16 mono for simplicity here.
+            # Need to handle format/rate conversion robustly in production.
+
+            # Convert frame data to bytes (assuming format='s16', layout='mono')
+            # Check frame.format.name and frame.layout.name
+            if frame.format.name != 's16':
+                 logger.warning(f"Unexpected frame format: {frame.format.name}")
+                 # Add conversion logic if necessary
+            if frame.layout.name != 'mono':
+                  logger.warning(f"Unexpected frame layout: {frame.layout.name}")
+                  # Add conversion logic if necessary
+
+            # Extract data as bytes
+            in_data = frame.to_ndarray(format='s16').tobytes()
+            self._buffer.extend(in_data)
+
+            # Send chunks of the target size
+            while len(self._buffer) >= self._target_chunk_size:
+                chunk_to_send = self._buffer[:self._target_chunk_size]
+                del self._buffer[:self._target_chunk_size]
+                try:
+                    # Put data into the thread-safe queue for the asyncio thread
+                    audio_to_send_queue.put_nowait(chunk_to_send)
+                except queue.Full:
+                    logger.warning("Audio sending queue full, dropping chunk.")
+
+        except Exception as e:
+            logger.error(f"Error processing incoming audio frame: {e}", exc_info=True)
+
+
+        # 2. Get audio chunk received from LiveConnect for playback
+        out_data = None
+        try:
+            # Get data from the thread-safe queue populated by the asyncio thread
+            out_data = audio_to_play_queue.get_nowait()
+            audio_to_play_queue.task_done()
+        except queue.Empty:
+            # Send silence if no audio is ready from LiveConnect
+            # Calculate silence buffer size based on expected output frame duration/rate
+            # Example: 10ms frame at 24kHz, 16-bit mono = 24000 * 1 * 2 * 0.010 = 480 bytes
+            silence_chunk_size = int(RECEIVE_SAMPLE_RATE * 1 * 2 * 0.010)
+            out_data = b'\0' * silence_chunk_size
+
+
+        # 3. Construct the output AudioFrame for playback
+        # Ensure the data format matches what WebRTC expects (usually S16 PCM)
+        # The sample rate MUST match RECEIVE_SAMPLE_RATE (24kHz)
+        try:
+            # Convert bytes back to numpy array (assuming s16 mono)
+            num_samples = len(out_data) // 2 # 2 bytes per sample for s16
+            if len(out_data) % 2 != 0:
+                 logger.warning("Received odd number of bytes for s16 format, padding.")
+                 out_data += b'\0' # Add null byte if odd length
+
+            new_ndarray = np.frombuffer(out_data, dtype=np.int16)
+
+            # Reshape for mono layout (samples, channels)
+            if new_ndarray.size > 0:
+                new_ndarray = new_ndarray.reshape(-1, 1)
+            else:
+                # Handle empty data case
+                silence_samples = silence_chunk_size // 2
+                new_ndarray = np.zeros((silence_samples, 1), dtype=np.int16)
+
+
+            # Create the new frame
+            new_frame = av.AudioFrame.from_ndarray(new_ndarray, format='s16', layout='mono')
+            new_frame.sample_rate = RECEIVE_SAMPLE_RATE # Crucial: Set output sample rate
+            new_frame.pts = frame.pts # Preserve presentation timestamp if possible
+
+            return new_frame
+
+        except Exception as e:
+             logger.error(f"Error constructing output audio frame: {e}", exc_info=True)
+             # Return an empty/silent frame on error
+             silence_chunk_size = int(RECEIVE_SAMPLE_RATE * 1 * 2 * 0.010)
+             silence_samples = silence_chunk_size // 2
+             silent_ndarray = np.zeros((silence_samples, 1), dtype=np.int16)
+             error_frame = av.AudioFrame.from_ndarray(silent_ndarray, format='s16', layout='mono')
+             error_frame.sample_rate = RECEIVE_SAMPLE_RATE
+             return error_frame
+
+    def on_ended(self):
+        """Callback when the WebRTC connection ends."""
+        logger.info("WebRTC connection ended. Cleaning up...")
+        stop_asyncio_thread()
+        logger.info("Cleanup complete.")
+
+# --- Streamlit UI ---
+st.title("Live Voice Agent Interaction")
+st.write("Click 'Start' to connect your microphone and talk to the agent.")
+
+# Placeholder for displaying transcriptions
+transcript_placeholder = st.empty()
+full_transcript = ""
+
+
+# Start the WebRTC streamer
+webrtc_ctx = webrtc_streamer(
+    key="live-voice",
+    mode=WebRtcMode.SENDRECV,
+    client_settings=WEBRTC_CLIENT_SETTINGS,
+    audio_processor_factory=LiveConnectAudioProcessor,
+    async_processing=True, # Use async processing
+    # rtc_configuration={"iceTransportPolicy": "relay"} # Uncomment if behind strict NAT/Firewall
+)
+
+if webrtc_ctx.state.playing:
+    st.write("Status: Connected and listening...")
+    # Continuously check the text queue and update the display
+    while True:
+         try:
+              text = text_received_queue.get_nowait()
+              full_transcript += text + " "
+              transcript_placeholder.text_area("Transcript:", full_transcript, height=200)
+              text_received_queue.task_done()
+         except queue.Empty:
+              # Break the loop if the streamer stops playing
+              if not webrtc_ctx.state.playing:
+                   break
+              time.sleep(0.1) # Prevent busy-waiting
+else:
+    st.write("Status: Disconnected. Click Start.")
+    # Ensure cleanup if stopped externally
+    stop_asyncio_thread()
+    full_transcript = "" # Clear transcript when stopped
+    transcript_placeholder.text_area("Transcript:", full_transcript, height=200)
+
+st.write("---")
+st.write("Remember to stop the connection when finished.")
+
+# Ensure cleanup on app exit/rerun
+# Note: Streamlit's execution model can make perfect cleanup tricky.
+# Using daemon threads helps, but explicit stop on session end is best.
