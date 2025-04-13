@@ -175,7 +175,8 @@ except Exception as e:
 # --- UI Rendering Logic ---
 # ... (UI Rendering logic remains the same, check view_mode first) ...
 query_params = st.query_params.to_dict()
-view_mode = query_params.get("view", ["streamlit"])[0]
+view_mode = st.query_params.get("view", "streamlit")
+st.sidebar.warning(f"DEBUG: view_mode = '{view_mode}' (Type: {type(view_mode)})")
 
 if view_mode == "fastapi":
     # --- Display FastAPI HTML Page ---
@@ -264,7 +265,7 @@ else:
     st.sidebar.header("Agent Details")
     # Get runner name safely from session state if possible
     runner_instance = st.session_state.get(ADK_RUNNER_KEY)
-    st.sidebar.caption(f"**Agent Name:** `{runner_instance.agent.name if runner_instance and runner_instance.agent else 'N/A'}`")
+    st.sidebar.caption(f"**Agent Naame:** `{runner_instance.agent.name if runner_instance and runner_instance.agent else 'N/A'}`")
     st.sidebar.caption(f"**App Name:** `{APP_NAME}`")
     st.sidebar.caption(f"**User ID:** `{USER_ID}`")
     st.sidebar.caption(f"**Current Session ID:** `{st.session_state.get(ADK_SESSION_ID_KEY, 'N/A')}`")
