@@ -10,5 +10,4 @@ google-genai
 nest-asyncio
 fastapi
 uvicorn[standard]
-google-generativeai
 ffmpeg-python

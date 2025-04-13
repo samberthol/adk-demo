@@ -15,7 +15,9 @@ from starlette.websockets import WebSocketState
 from fastapi.responses import HTMLResponse
 
 # --- Google AI / ADK Imports ---
-import google.generativeai as genai
+from google import genai
+from google.genai import types
+
 try:
     # Import types needed for configuration and content
     from google.genai.types import (
