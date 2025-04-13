@@ -12,10 +12,11 @@ The system features:
 * **Streamlit UI**: Provides a web interface for interacting with the agents.
 * **Deployment Scripts**: Automates building and deployment using [Google Cloud Build](https://cloud.google.com/build/docs) and [Google Cloud Run](https://cloud.google.com/run). Container images are stored in [Google Artifact Registry](https://cloud.google.com/artifact-registry/docs).
 
-**Project Diagram**
-Workflow of the different component
+**Project Diagram** : Workflow of the different component
 
-![diagram](./assets/td-flow-chart.png)
+<p align="center">
+<img src="./assets/td-flow-chart.png" alt="Diagram" width="600"/>
+</p>
 
 ## Project Structure
 
@@ -61,20 +62,15 @@ Workflow of the different component
         cd google-agentic
 
 2.  **Set Environment Variables:**
-    * Copy the  `.env.example` file in the project root to a `.env` new file and set your default variables
+    * Copy the  `.env.example` file in the project root to a `.env` new file and set your default variables.  Ensure `GOOGLE_API_KEY` and `GCP_PROJECT_ID` are set in your environment.
 
     * ***Security Note:*** For production, manage `GOOGLE_API_KEY` securely using tools like [Secret Manager](https://cloud.google.com/secret-manager).
 
-## Deployment to Cloud Run
-
-The `build_then_run.sh` script automates the build and deployment process:
-
-1.  **Ensure Prerequisites:** Make sure `gcloud` is authenticated and configured for the correct project (`gcloud config set project YOUR_GCP_PROJECT_ID`). Ensure `GOOGLE_API_KEY` and `GCP_PROJECT_ID` are set in your environment or `.env` file.
-2.  **Make script executable:**
+3.  **Make script executable:**
 
         chmod +x build_then_run.sh
 
-3.  **Run the script:**
+4.  **Run the script:**
 
         ./build_then_run.sh
 
