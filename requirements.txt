@@ -6,7 +6,8 @@ google-auth
 google-adk
 pandas
 google-api-core
-streamlit-webrtc
 google-genai
-numpy
-scipy
+nest-asyncio
+fastapi
+uvicorn[standard]
+google-generativeai

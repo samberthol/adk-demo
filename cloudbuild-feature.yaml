@@ -1,19 +1,12 @@
 # cloudbuild-feature.yaml
-# SIMPLIFIED: Uses only SHORT_SHA for image tagging.
-# This avoids all issues with branch name sanitization and parsing.
-# ==============================================================================
-# IMPORTANT: This file requires ALL substitution variables (starting with _)
-#            to be provided when the build is triggered. No default values
-#            are set here to avoid committing configuration or secrets.
-# ==============================================================================
-# WARNING: This configuration passes GEMINI_API_KEY as an environment variable
-#          to Cloud Run. This is less secure than using Secret Manager.
-#          Provide the key value securely when triggering the build.
-# ==============================================================================
+# Builds image using SHORT_SHA tag and deploys to Cloud Run Feature service.
+# Runs both FastAPI (port 8000 internal) and Streamlit (port 8080 internal).
+# Cloud Run directs external traffic to the $PORT (default 8080).
+# Requires ffmpeg installed in the Docker image.
+# Uses substitutions provided at trigger time.
 
 steps:
   # Step 1: Build the container image using SHORT_SHA for tag
-  # Reverted to simpler docker command, no bash needed for tagging.
   - name: 'gcr.io/cloud-builders/docker'
     id: Build
     args:
@@ -21,6 +14,7 @@ steps:
       - '-t'
       # Tag uses SHORT_SHA only (built-in variable)
       - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
+      - '--file=Dockerfile' # Explicitly specify the Dockerfile
       - '.'
 
   # Step 2: Push the container image tagged with SHORT_SHA
@@ -35,7 +29,7 @@ steps:
   # Step 3: Deploy the image to Cloud Run tagged with SHORT_SHA
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy
-    entrypoint: gcloud # Reverted to default entrypoint
+    entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
@@ -45,10 +39,15 @@ steps:
       - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--region=${_REGION}'
       - '--platform=managed'
+      # Cloud Run sends traffic to the PORT env var (default 8080), which our start.sh script uses for Streamlit.
       - '--port=8080'
       - '--allow-unauthenticated' # Adjust as needed
-      # Pass runtime environment variables
-      - '--set-env-vars=^##^GEMINI_API_KEY=${_GEMINI_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
+      # Pass runtime environment variables. Using GOOGLE_API_KEY now.
+      # Ensure all required variables by your agents/tools are included.
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##PORT=8080' # Explicitly set PORT env var
+      # Increase startup time if needed for ffmpeg/model loading etc.
+      # - '--startup-cpu-boost' # Optional: Consider if startup is slow
+      # - '--cpu-throttling=false' # Optional: If background tasks (like ADK) need consistent CPU
       - '--quiet'
     waitFor: ['Push']
 
@@ -56,14 +55,15 @@ steps:
 images:
   - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
 
-# substitutions section remains the same (values must be provided at trigger time)
+# substitutions section: Values must be provided at trigger time.
+# Changed _GEMINI_API_KEY to _GOOGLE_API_KEY for consistency.
 substitutions:
   _GCP_PROJECT_ID: ''
   _REGION: ''
   _REPO_ID: ''
   _IMAGE_NAME: ''
   _SERVICE_NAME_FEATURE: ''
-  _GEMINI_API_KEY: ''
+  _GOOGLE_API_KEY: '' # Renamed from _GEMINI_API_KEY
   _AGENT_MODEL_NAME: ''
   _BQ_DEFAULT_LOCATION: ''
   _VM_DEFAULT_ZONE: ''
@@ -74,8 +74,11 @@ substitutions:
   _VM_DEFAULT_DISK_TYPE: ''
   _VM_DEFAULT_SUBNETWORK: ''
   _VM_DEFAULT_SERVICE_ACCOUNT: ''
+  # Derived variable, no need to provide this one directly
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
 
 # options section remains the same
 options:
   logging: CLOUD_LOGGING_ONLY
+  # Consider increasing machine type if build or runtime needs more resources (e.g., for ffmpeg)
+  machineType: 'E2_HIGHCPU_8' # Keep existing, or adjust (e.g., 'N1_HIGHCPU_8')
