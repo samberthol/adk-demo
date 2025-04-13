@@ -96,7 +96,14 @@ def get_or_create_adk_session_sync(user_id: str) -> str:
         session_id = f"{ADK_SESSION_PREFIX}{int(time.time())}_{os.urandom(4).hex()}"
         active_adk_sessions[user_id] = session_id
         try: session_service.create_session(app_name=APP_NAME, user_id=user_id, session_id=session_id, state={})
-        except Exception as e: logger.exception(f"FATAL creating session {session_id}:"); if user_id in active_adk_sessions: del active_adk_sessions[user_id]; raise
+        except Exception as e:
+           # --- CORRECTED BLOCK ---
+           logger.exception(f"--- FastAPI ADK Sync: FATAL ERROR creating session {session_id} for {user_id}:")
+           # Move 'if' statement to new line, properly indented
+           if user_id in active_adk_sessions:
+               del active_adk_sessions[user_id]
+           # --- END CORRECTION ---
+           raise # Re-raise the exception
         return session_id
 
 def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> str:
