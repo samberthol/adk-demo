@@ -1,72 +1,99 @@
 # cloudbuild-feature.yaml
-# Builds image using SHORT_SHA tag and deploys to Cloud Run Feature service.
-# Runs both FastAPI (port 8000 internal) and Streamlit (port 8080 internal).
-# Cloud Run directs external traffic to the $PORT (default 8080).
+# Builds ONE image, deploys it to TWO Cloud Run services:
+# 1. Streamlit UI service (port 8080)
+# 2. FastAPI API/WebSocket service (port 8000)
 # Requires ffmpeg installed in the Docker image.
 # Uses substitutions provided at trigger time.
 
 steps:
-  # Step 1: Build the container image using SHORT_SHA for tag
+  # Step 1: Build the container image (Same as before)
   - name: 'gcr.io/cloud-builders/docker'
     id: Build
     args:
       - 'build'
       - '-t'
-      # Tag uses SHORT_SHA only (built-in variable)
       - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
-      - '--file=Dockerfile' # Explicitly specify the Dockerfile
+      - '--file=Dockerfile'
       - '.'
 
-  # Step 2: Push the container image tagged with SHORT_SHA
+  # Step 2: Push the container image (Same as before)
   - name: 'gcr.io/cloud-builders/docker'
     id: Push
     args:
       - 'push'
-      # Push the image tagged with SHORT_SHA
       - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
     waitFor: ['Build']
 
-  # Step 3: Deploy the image to Cloud Run tagged with SHORT_SHA
+  # --- Step 3a: Deploy Streamlit Service ---
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: Deploy
+    id: Deploy-Streamlit
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      # Service name provided via substitution
-      - '${_SERVICE_NAME_FEATURE}'
-      # Deploy the image tagged with SHORT_SHA
+      # Service name for Streamlit UI (NEW substitution)
+      - '${_SERVICE_NAME_STREAMLIT}'
       - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--region=${_REGION}'
       - '--platform=managed'
-      # Cloud Run sends traffic to the PORT env var (default 8080), which our start.sh script uses for Streamlit.
-      # We set the container port Cloud Run should target.
+      # Expose Streamlit port
       - '--port=8080'
       - '--allow-unauthenticated' # Adjust as needed
-      - '--memory=2Gi'
-      # Pass runtime environment variables. Using GOOGLE_API_KEY now.
-      # Ensure all required variables by your agents/tools are included.
-      # REMOVED '##PORT=8080' from the end of this line
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
-      # Increase startup time if needed for ffmpeg/model loading etc.
-      # - '--startup-cpu-boost' # Optional: Consider if startup is slow
-      # - '--cpu-throttling=false' # Optional: If background tasks (like ADK) need consistent CPU
+      # Set ENV Vars (including PORT for Streamlit)
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##PORT=8080'
+      # --- Override command to run ONLY Streamlit ---
+      - '--command=streamlit'
+      - '--args=run,ui/app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true'
+      # Memory allocation (adjust if needed)
+      - '--memory=1Gi'
       - '--quiet'
+    # Depends only on the image push
     waitFor: ['Push']
+
+  # --- Step 3b: Deploy FastAPI Service ---
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: Deploy-FastAPI
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      # Service name for FastAPI (NEW substitution)
+      - '${_SERVICE_NAME_FASTAPI}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      # Expose FastAPI port
+      - '--port=8000'
+       # Enable session affinity for WebSockets (might be needed)
+      - '--session-affinity'
+      - '--allow-unauthenticated' # Adjust as needed
+      # Set ENV Vars (PORT is automatically set to 8000 by Cloud Run here, no need to set manually)
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
+      # --- Override command to run ONLY Gunicorn/FastAPI ---
+      - '--command=gunicorn'
+      - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000' # Use PORT env var? Gunicorn might need explicit port. Binding to 8000.
+       # Memory allocation (adjust if needed)
+      - '--memory=1Gi'
+      - '--quiet'
+    # Depends only on the image push (can run in parallel with Streamlit deploy)
+    waitFor: ['Push']
+
 
 # images section: List the image tagged with SHORT_SHA
 images:
   - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
 
 # substitutions section: Values must be provided at trigger time.
-# Changed _GEMINI_API_KEY to _GOOGLE_API_KEY for consistency.
+# Add specific service names. Remove _SERVICE_NAME_FEATURE.
 substitutions:
   _GCP_PROJECT_ID: ''
   _REGION: ''
   _REPO_ID: ''
   _IMAGE_NAME: ''
-  _SERVICE_NAME_FEATURE: ''
-  _GOOGLE_API_KEY: '' # Renamed from _GEMINI_API_KEY
+  # _SERVICE_NAME_FEATURE: '' # Removed
+  _SERVICE_NAME_STREAMLIT: 'adk-multi-agent-streamlit' # Example name, provide yours
+  _SERVICE_NAME_FASTAPI: 'adk-multi-agent-api'      # Example name, provide yours
+  _GOOGLE_API_KEY: ''
   _AGENT_MODEL_NAME: ''
   _BQ_DEFAULT_LOCATION: ''
   _VM_DEFAULT_ZONE: ''
@@ -77,11 +104,10 @@ substitutions:
   _VM_DEFAULT_DISK_TYPE: ''
   _VM_DEFAULT_SUBNETWORK: ''
   _VM_DEFAULT_SERVICE_ACCOUNT: ''
-  # Derived variable, no need to provide this one directly
+  # Derived variable
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
 
 # options section remains the same
 options:
   logging: CLOUD_LOGGING_ONLY
-  # Consider increasing machine type if build or runtime needs more resources (e.g., for ffmpeg)
-  machineType: 'E2_HIGHCPU_8' # Keep existing, or adjust (e.g., 'N1_HIGHCPU_8')
+  machineType: 'E2_HIGHCPU_8'
