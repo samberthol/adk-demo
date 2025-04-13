@@ -368,7 +368,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
         except RuntimeError as e:
             if "WebSocket is not connected" not in str(e): logger.error(f"Error during WebSocket close for {client_id}: {e}")
         except Exception as e: logger.error(f"Unexpected error during WebSocket close for {client_id}: {e}")
-
+ 
 # --- Uvicorn Runner (if run directly) ---
 if __name__ == "__main__":
     import uvicorn
