@@ -513,10 +513,34 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
     # --- Exception Handling & Cleanup ---
     except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
-    except genai.types.generation_types.StopCandidateException as e: logger.info(f"[{client_id}] Gemini stream stopped normally: {e}"); try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended."})) except Exception: pass
-    except ImportError as e: logger.error(f"[{client_id}] Startup failed due to ImportError: {e}"); try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Import Error: {e}"})) except Exception: pass
-    except ValueError as e: logger.error(f"[{client_id}] Startup failed due to ValueError: {e}"); try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Config Error: {e}"})) except Exception: pass
-    except Exception as e: logger.error(f"Unexpected error in WS handler {client_id}: {e}", exc_info=True); try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server error: {str(e)}"})) except Exception: pass
+    except genai.types.generation_types.StopCandidateException as e:
+        logger.info(f"[{client_id}] Gemini stream stopped normally: {e}")
+        try:
+            await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended."}))
+        except Exception:
+            pass  # Ignore errors sending closure message if WS is already closed
+
+    except ImportError as e:
+        logger.error(f"[{client_id}] Startup failed due to ImportError: {e}")
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "message": f"Server Import Error: {e}"}))
+        except Exception:
+            pass
+
+    except ValueError as e:
+        logger.error(f"[{client_id}] Startup failed due to ValueError: {e}")
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "message": f"Server Config Error: {e}"}))
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.error(f"Unexpected error in WS handler {client_id}: {e}", exc_info=True)
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "message": f"Server error: {str(e)}"}))
+        except Exception:
+            pass
+        
     finally:
         logger.info(f"Closing WS connection & cleaning up for {client_id}.")
         # Cancel background tasks
