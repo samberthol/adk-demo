@@ -7,13 +7,17 @@ import sys
 from pathlib import Path
 import asyncio
 import nest_asyncio
-import requests # <--- Import requests
+import requests
 
 # Set page config as the first Streamlit command
 st.set_page_config(layout="wide", page_title="GCP ADK Agent")
 
-# Add project root to Python path
-# ... (rest of imports and path setup as before) ...
+# Add project root to Python path (Optional if PYTHONPATH is set in Dockerfile)
+# project_root = str(Path(__file__).parent.parent)
+# if project_root not in sys.path:
+#     sys.path.append(project_root)
+
+# Import ADK components AFTER set_page_config
 try:
     from agents.meta.agent import meta_agent
     from google.adk.runners import Runner
@@ -25,37 +29,61 @@ except ImportError as e:
     st.stop()
 
 # Configure logging
-# ... (logging config as before) ...
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("streamlit_app")
 
 # --- Constants ---
-# ... (constants as before) ...
-FASTAPI_INTERNAL_URL = "http://localhost:8000" # Internal address for FastAPI
+APP_NAME = "gcp_multi_agent_demo_streamlit"
+USER_ID = f"st_user_{APP_NAME}" # Define a consistent User ID
+ADK_SESSION_STATE_KEY = f'adk_session_id_{APP_NAME}' # Use APP_NAME here
+FASTAPI_INTERNAL_URL = "http://localhost:8000"
 
 # Apply nest_asyncio
 # ... (nest_asyncio logic as before) ...
+try:
+    nest_asyncio.apply()
+    logger.info("nest_asyncio applied successfully.")
+except RuntimeError as e:
+    if "cannot apply nest_asyncio" in str(e):
+        logger.info("nest_asyncio already applied or cannot be applied again.")
+    else:
+        logger.error(f"Error applying nest_asyncio: {e}")
 
-# --- ADK Initialization ---
-# ... (initialize_adk function using @st.cache_resource as before) ...
+# --------------------------------------------------------------------------
+# ADK Initialization Logic (Accepting Args)
+# --------------------------------------------------------------------------
 @st.cache_resource
-def initialize_adk():
-    # ... (exact code from previous correct version) ...
+def initialize_adk(app_name_arg: str, user_id_arg: str): # <--- Accept arguments
+    """
+    Initializes the ADK Runner and InMemorySessionService for the application.
+    Manages the unique ADK session ID within the Streamlit session state.
+    Uses passed arguments for app_name and user_id.
+    """
     logger.info("--- ADK Init: Attempting to initialize Runner and Session Service... ---")
     session_service = InMemorySessionService()
     logger.info("--- ADK Init: InMemorySessionService instantiated. ---")
+
+    # Use the arguments passed to the function
     runner = Runner(
         agent=meta_agent,
-        app_name=APP_NAME,
+        app_name=app_name_arg,
         session_service=session_service
     )
     logger.info(f"--- ADK Init: Runner instantiated for agent '{meta_agent.name}'. ---")
+
+    # Manage ADK session ID within Streamlit's session state
+    # Use the globally defined key which depends on the constant APP_NAME
     if ADK_SESSION_STATE_KEY not in st.session_state:
-        session_id = f"st_session_{APP_NAME}_{int(time.time())}_{os.urandom(4).hex()}"
+        session_id = f"st_session_{app_name_arg}_{int(time.time())}_{os.urandom(4).hex()}" # Use arg here too if desired
         st.session_state[ADK_SESSION_STATE_KEY] = session_id
         logger.info(f"--- ADK Init: Generated new ADK session ID: {session_id} ---")
         try:
+            # Create session using passed arguments
             session_service.create_session(
-                app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state={}
+                app_name=app_name_arg,
+                user_id=user_id_arg,
+                session_id=session_id,
+                state={}
             )
             logger.info("--- ADK Init: Successfully created new session in ADK SessionService.")
         except Exception as e:
@@ -65,16 +93,23 @@ def initialize_adk():
         session_id = st.session_state[ADK_SESSION_STATE_KEY]
         logger.info(f"--- ADK Init: Reusing existing ADK session ID from Streamlit state: {session_id} ---")
         try:
+            # Check session using passed arguments
             existing_session = session_service.get_session(
-                app_name=APP_NAME, user_id=USER_ID, session_id=session_id
+                app_name=app_name_arg,
+                user_id=user_id_arg,
+                session_id=session_id
             )
             if not existing_session:
-                logger.warning(f"--- ADK Init: Session {session_id} not found in InMemorySessionService memory. Recreating session. State will be lost. ---")
+                logger.warning(f"--- ADK Init: Session {session_id} not found in memory. Recreating. State lost. ---")
                 try:
+                    # Recreate session using passed arguments
                     session_service.create_session(
-                        app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state={}
+                        app_name=app_name_arg,
+                        user_id=user_id_arg,
+                        session_id=session_id,
+                        state={}
                     )
-                    logger.info(f"--- ADK Init: Successfully recreated session {session_id} in ADK SessionService.")
+                    logger.info(f"--- ADK Init: Successfully recreated session {session_id}.")
                 except Exception as e_recreate:
                     logger.exception(f"--- ADK Init: ERROR - Could not recreate missing session {session_id}:")
                     raise RuntimeError(f"Could not recreate missing ADK session {session_id}: {e_recreate}") from e_recreate
@@ -83,13 +118,16 @@ def initialize_adk():
         except Exception as e_get:
              logger.error(f"--- ADK Init: Error trying to get session {session_id} from service: {e_get} ---")
              raise RuntimeError(f"Error checking ADK session {session_id} existence: {e_get}") from e_get
+
     logger.info(f"--- ADK Init: Initialization sequence complete. Runner is ready. Active Session ID: {session_id} ---")
+    # Return runner and the determined session_id
     return runner, session_id
 
-
-# --- Async Runner Function ---
-# ... (run_adk_async function as before) ...
+# --------------------------------------------------------------------------
+# Async Runner Function (No changes needed here)
+# --------------------------------------------------------------------------
 async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> str:
+    # ... (async function remains the same) ...
     logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id} ---")
     logger.info(f"--- ADK Run Async: Processing User Query (truncated): '{user_message_text[:150]}...' ---")
     content = Content(role='user', parts=[Part(text=user_message_text)])
@@ -114,9 +152,12 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
     logger.info(f"--- ADK Run Async: Final Response (truncated): '{final_response_text[:150]}...' ---")
     return final_response_text
 
-# --- Sync Wrapper ---
-# ... (run_adk_sync function as before) ...
+
+# --------------------------------------------------------------------------
+# Sync Wrapper (No changes needed here)
+# --------------------------------------------------------------------------
 def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> str:
+    # ... (sync wrapper remains the same) ...
     try:
         return asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
     except RuntimeError as e:
@@ -126,10 +167,10 @@ def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_tex
         logger.exception("Unexpected exception during run_adk_sync:")
         return f"An unexpected error occurred: {e}. Check logs."
 
-
 # --- Initialize ADK Runner and Session ---
 try:
-    adk_runner, current_adk_session_id = initialize_adk()
+    # Pass the global constants as arguments when calling the cached function
+    adk_runner, current_adk_session_id = initialize_adk(APP_NAME, USER_ID) # <--- Pass args
     # Sidebar moved lower to allow checking query_params first
 except Exception as e:
     st.error(f"**Fatal Error:** Could not initialize the ADK Runner or Session Service: {e}", icon="❌")
@@ -139,7 +180,7 @@ except Exception as e:
 
 
 # --- UI Rendering Logic ---
-
+# ... (UI Rendering logic remains the same) ...
 # Check query params FIRST to decide which UI to show
 query_params = st.query_params.to_dict()
 view_mode = query_params.get("view", ["streamlit"])[0] # Default to streamlit view
@@ -147,32 +188,22 @@ view_mode = query_params.get("view", ["streamlit"])[0] # Default to streamlit vi
 if view_mode == "fastapi":
     # --- Display FastAPI HTML Page ---
     st.title("⚡ FastAPI Test UI (via Streamlit Proxy)")
+    # ... (rest of FastAPI view) ...
     st.caption("Displaying content fetched from internal endpoint `/` on port 8000")
     st.markdown("---")
     try:
-        # Make request to the internal FastAPI endpoint
-        response = requests.get(FASTAPI_INTERNAL_URL + "/", timeout=5) # Added timeout
-        response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
-        # Display the fetched HTML content
-        # WARNING: unsafe_allow_html=True can be a security risk if the content isn't trusted.
+        response = requests.get(FASTAPI_INTERNAL_URL + "/", timeout=5)
+        response.raise_for_status()
         st.markdown(response.text, unsafe_allow_html=True)
         st.markdown("---")
         st.caption(f"Status code from {FASTAPI_INTERNAL_URL}/: {response.status_code}")
-
-        st.warning("""
-            **Note:** This is a basic HTML proxy.
-            * JavaScript within the FastAPI page might not function correctly, especially WebSocket connections which need specific handling.
-            * Relative links for CSS/JS might be broken.
-            * This is a workaround and not a standard way to integrate FastAPI UIs.
-            """)
-
+        st.warning("""**Note:** This is a basic HTML proxy...""")
     except requests.exceptions.RequestException as req_err:
         st.error(f"Could not fetch FastAPI UI from {FASTAPI_INTERNAL_URL}/: {req_err}")
         logger.error(f"Error fetching internal FastAPI UI: {req_err}")
     except Exception as ex:
         st.error(f"An unexpected error occurred while fetching FastAPI UI: {ex}")
         logger.exception("Unexpected error fetching/displaying FastAPI UI via proxy:")
-
 else:
     # --- Display Streamlit Chat UI (Default) ---
     st.title("💬 GCP ADK Multi-Agent Demo")
@@ -196,7 +227,6 @@ else:
             st.session_state[message_history_key].append({"role": "user", "content": prompt})
             with st.chat_message("user"):
                 st.markdown(prompt)
-
             with st.chat_message("assistant"):
                 message_placeholder = st.empty()
                 message_placeholder.markdown("Thinking...")
@@ -220,15 +250,23 @@ else:
         if ADK_SESSION_STATE_KEY in st.session_state:
             del st.session_state[ADK_SESSION_STATE_KEY]
             logger.info(f"Removed ADK session key '{ADK_SESSION_STATE_KEY}' from Streamlit state.")
-        initialize_adk.clear()
-        logger.info("Cleared ADK initialization cache.")
+        # Clear the cache for the function. Since it now takes arguments,
+        # simply calling clear() might work, or it might require specific args.
+        # If clear() causes issues, you might need to remove this line or handle it differently.
+        try:
+            initialize_adk.clear()
+            logger.info("Cleared ADK initialization cache.")
+        except Exception as clear_ex:
+            logger.warning(f"Could not clear initialize_adk cache: {clear_ex}")
+
         st.rerun()
 
     st.sidebar.divider()
     st.sidebar.header("Agent Details")
+    # Use the cached runner instance to get agent name
     st.sidebar.caption(f"**Agent Name:** `{adk_runner.agent.name if adk_runner and adk_runner.agent else 'N/A'}`")
-    st.sidebar.caption(f"**App Name:** `{APP_NAME}`")
-    st.sidebar.caption(f"**User ID:** `{USER_ID}`")
+    st.sidebar.caption(f"**App Name:** `{APP_NAME}`") # Display global constant
+    st.sidebar.caption(f"**User ID:** `{USER_ID}`") # Display global constant
     st.sidebar.caption(f"**Current Session ID:** `{st.session_state.get(ADK_SESSION_STATE_KEY, 'N/A')}`")
 
     # Add link to switch view
