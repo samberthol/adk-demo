@@ -40,11 +40,13 @@ steps:
       - '--region=${_REGION}'
       - '--platform=managed'
       # Cloud Run sends traffic to the PORT env var (default 8080), which our start.sh script uses for Streamlit.
+      # We set the container port Cloud Run should target.
       - '--port=8080'
       - '--allow-unauthenticated' # Adjust as needed
       # Pass runtime environment variables. Using GOOGLE_API_KEY now.
       # Ensure all required variables by your agents/tools are included.
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##PORT=8080' # Explicitly set PORT env var
+      # REMOVED '##PORT=8080' from the end of this line
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
       # Increase startup time if needed for ffmpeg/model loading etc.
       # - '--startup-cpu-boost' # Optional: Consider if startup is slow
       # - '--cpu-throttling=false' # Optional: If background tasks (like ADK) need consistent CPU
