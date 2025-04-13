@@ -342,7 +342,12 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                 except Exception as e: logger.error(f"[{client_id}] Error receiving from WebSocket: {e}", exc_info=True); break
             logger.info(f"[{client_id}] Exited main WebSocket receive loop.")
     except WebSocketDisconnect: logger.info(f"WebSocket client {client_id} disconnected during setup or run.")
-    except genai.types.generation_types.StopCandidateException as e: logger.info(f"[{client_id}] Gemini stream stopped normally: {e}"); try: await websocket.send_text('{"type": "info", "message": "Speech stream ended."}') except WebSocketDisconnect: pass
+    except genai.types.generation_types.StopCandidateException as e:
+         logger.info(f"[{client_id}] Gemini stream stopped normally: {e}")
+         try:
+             await websocket.send_text('{"type": "info", "message": "Speech stream ended."}')
+         except WebSocketDisconnect:
+             pass # Ignore error if client disconnected before we could send message
     except Exception as e:
         logger.error(f"An unexpected error occurred in WebSocket handler for {client_id}: {e}", exc_info=True)
         try: await websocket.send_text(f'{{"type": "error", "message": "Server error: {str(e)}"}}')
