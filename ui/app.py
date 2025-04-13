@@ -15,12 +15,6 @@ from live_connect_manager import LiveConnectManager, SEND_SAMPLE_RATE, RECEIVE_S
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Client settings for WebRTC (can be adjusted)
-WEBRTC_CLIENT_SETTINGS = ClientSettings(
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-    media_stream_constraints={"audio": True, "video": False},
-)
-
 # Thread-safe queues for communication between Streamlit thread and Asyncio thread
 # Max sizes can be adjusted based on performance/memory
 audio_to_send_queue = queue.Queue(maxsize=10)
@@ -257,14 +251,19 @@ transcript_placeholder = st.empty()
 full_transcript = ""
 
 
-# Start the WebRTC streamer
+# Define configuration directly before the call
+RTC_CONFIGURATION = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+MEDIA_STREAM_CONSTRAINTS = {"audio": True, "video": False}
+
+# Ensure the call looks like this:
 webrtc_ctx = webrtc_streamer(
     key="live-voice",
     mode=WebRtcMode.SENDRECV,
-    client_settings=WEBRTC_CLIENT_SETTINGS,
+    rtc_configuration=RTC_CONFIGURATION,             # Pass dict directly
+    media_stream_constraints=MEDIA_STREAM_CONSTRAINTS, # Pass dict directly
     audio_processor_factory=LiveConnectAudioProcessor,
-    async_processing=True, # Use async processing
-    # rtc_configuration={"iceTransportPolicy": "relay"} # Uncomment if behind strict NAT/Firewall
+    async_processing=True
+    # Make sure client_settings=... argument is removed
 )
 
 if webrtc_ctx.state.playing:
