@@ -33,6 +33,7 @@ steps:
       - 'deploy'
       # Service name for Streamlit UI (NEW substitution)
       - '${_SERVICE_NAME_STREAMLIT}'
+      - '--project=${_GCP_PROJECT_ID}'
       - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--region=${_REGION}'
       - '--platform=managed'
@@ -61,6 +62,7 @@ steps:
       - 'run'
       - 'deploy'
       - '${_SERVICE_NAME_FASTAPI}'
+      - '--project=${_GCP_PROJECT_ID}'
       - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--region=${_REGION}'
       - '--platform=managed'
