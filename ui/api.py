@@ -7,7 +7,8 @@ import time
 import uuid
 import json # Added previously
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, WebSocketState
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect # Keep these
+from starlette.websockets import WebSocketState # Import WebSocketState from starlette
 from fastapi.responses import HTMLResponse
 import google.generativeai as genai
 
