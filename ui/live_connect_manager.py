@@ -46,10 +46,9 @@ class LiveConnectManager:
         # Use genai.Client() as shown in the LiveAPI sample.
         # Authentication should be handled automatically via the environment variable.
         try:
-             # Attempt standard client initialization
-             self._client = genai.Client()
-             logger.info("genai.Client initialized.")
-             # Optionally verify connection or capabilities here if needed/possible
+             # Explicitly pass the API key read from the environment variable
+             self._client = genai.Client(api_key=self._api_key)
+             logger.info("genai.Client initialized with provided API key.")
         except Exception as e:
              logger.error(f"Failed to initialize genai.Client: {e}", exc_info=True)
              raise # Re-raise critical initialization error
