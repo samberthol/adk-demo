@@ -36,12 +36,10 @@ fi
 echo "Using GCP Project ID: $GCP_PROJECT_ID"
 echo "Using Region: $REGION"
 echo "Using Repository ID: $REPO_ID"
-echo "Using Service Name: $SERVICE_NAME"
-echo "Using Image Tag: $IMAGE_TAG"
-
+echo "Using Service Name: $SERVICE_NAME\n"
 
 # Construct IMAGE_URI using environment variables
-IMAGE_URI="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPO_ID}/${SERVICE_NAME}:${IMAGE_TAG}"
+IMAGE_URI="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${REPO_ID}/${SERVICE_NAME}:${IMAGE_TAG}\n"
 echo "Using Image URI: $IMAGE_URI"
 
 

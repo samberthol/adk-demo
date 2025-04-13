@@ -1,18 +1,22 @@
 # agents/resource/agent.py
+import os # Added import
 from google.adk.agents import LlmAgent
 # Import the functions directly, including the new start, stop, get functions
 from .tools import (
     create_vm_instance_func,
     delete_vm_instance_func,
     list_vm_instances_func,
-    start_vm_instance_func,  # Added
-    stop_vm_instance_func,   # Added
-    get_vm_instance_details_func # Added
+    start_vm_instance_func,
+    stop_vm_instance_func,
+    get_vm_instance_details_func 
 )
+
+# Read model name from environment variable, with a fallback
+agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 resource_agent = LlmAgent(
     name="ResourceAgent",
-    model="gemini-2.0-flash",
+    model=agent_model, # Use the variable
     description="An agent responsible for creating, deleting, listing, starting, stopping, and getting details of Google Compute Engine VM instances.", # Expanded description
     instruction=(
         "You are a specialized agent that executes commands to manage Compute Engine VM resources using available tools.\n\n"
