@@ -21,25 +21,27 @@ The system features:
 ## Project Structure
 
     google-agentic/
-    ├── agents/               # Agent definitions and tools
-    │   ├── datascience/
-    │   │   ├── agent.py      # DataScience Agent
-    │   │   └── tools.py      # BigQuery tools
-    │   ├── meta/
-    │   │   └── agent.py      # Meta Agent (orchestrator)
-    │   └── resource/
-    │       ├── agent.py      # Resource Agent
-    │       └── tools.py      # Compute Engine tools
-    ├── ui/                   # Streamlit UI application
-    │   └── app.py
-    ├── main.py               # Main entry point / Root agent definition
-    ├── requirements.txt      # Python dependencies
-    ├── Dockerfile            # Dockerfile for containerization
-    ├── cloudbuild.yaml       # Cloud Build configuration
-    ├── build_then_run.sh     # Build and deploy script
-    ├── .gitignore            # Files ignored by Git
-    ├── LICENSE               # Project license
-    └── README.md             # This file
+    ├── agents/                 # Agent definitions and tools
+    │   ├── datascience/    
+    │   │   ├── agent.py        # DataScience Agent
+    │   │   └── tools.py        # BigQuery tools
+    │   ├── meta/   
+    │   │   └── agent.py        # Meta Agent (orchestrator)
+    │   └── resource/   
+    │       ├── agent.py        # Resource Agent
+    │       └── tools.py        # Compute Engine tools
+    ├── assets/                 
+    │   └── td-flow-chart.png   # Diagram
+    ├── ui/                     # Streamlit UI application
+    │   └── app.py  
+    ├── main.py                 # Main entry point / Root agent definition
+    ├── requirements.txt        # Python dependencies
+    ├── Dockerfile              # Dockerfile for containerization
+    ├── cloudbuild.yaml         # Cloud Build configuration
+    ├── build_then_run.sh       # Build and deploy script
+    ├── .gitignore              # Files ignored by Git
+    ├── LICENSE                 # Project license
+    └── README.md               # This file
 
 ## Prerequisites
 
