@@ -9,3 +9,4 @@ google-api-core
 streamlit-webrtc
 google-genai
 numpy
+scipy
