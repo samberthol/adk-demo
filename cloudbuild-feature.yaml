@@ -39,9 +39,11 @@ steps:
       # Expose Streamlit port
       - '--port=8080'
       - '--allow-unauthenticated' # Adjust as needed
-      # Set ENV Vars (including PORT for Streamlit)
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##PORT=8080'
-      # --- Override command to run ONLY Streamlit ---
+      # --- VERIFY THIS LINE ---
+      # Set ENV Vars (REMOVED ##PORT=8080 from the end)
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
+      # --- END VERIFY THIS LINE ---
+      # Override command to run ONLY Streamlit
       - '--command=streamlit'
       - '--args=run,ui/app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true'
       # Memory allocation (adjust if needed)
@@ -51,31 +53,27 @@ steps:
     waitFor: ['Push']
 
   # --- Step 3b: Deploy FastAPI Service ---
+  # (This step should already be correct from the previous fix, ensure PORT is not set here either)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-FastAPI
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      # Service name for FastAPI (NEW substitution)
       - '${_SERVICE_NAME_FASTAPI}'
       - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--region=${_REGION}'
       - '--platform=managed'
-      # Expose FastAPI port
       - '--port=8000'
-       # Enable session affinity for WebSockets (might be needed)
       - '--session-affinity'
-      - '--allow-unauthenticated' # Adjust as needed
-      # Set ENV Vars (PORT is automatically set to 8000 by Cloud Run here, no need to set manually)
+      - '--allow-unauthenticated'
+      # Ensure PORT is NOT set in this env var list either
       - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}'
-      # --- Override command to run ONLY Gunicorn/FastAPI ---
+      # Override command to run ONLY Gunicorn/FastAPI
       - '--command=gunicorn'
-      - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000' # Use PORT env var? Gunicorn might need explicit port. Binding to 8000.
-       # Memory allocation (adjust if needed)
+      - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000'
       - '--memory=1Gi'
       - '--quiet'
-    # Depends only on the image push (can run in parallel with Streamlit deploy)
     waitFor: ['Push']
  
 
