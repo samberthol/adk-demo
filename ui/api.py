@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse # For a simple test page
 
 # Import Google Generative AI library
 import google.generativeai as genai
-from google.generativeai.types import Content, Part # For ADK message format
+from google.genai.types import Content, Part
 
 # Add project root to Python path
 project_root = str(Path(__file__).parent.parent)
