@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 # --- Google AI / ADK Imports ---
 from google import genai
 from google.genai import types
-from google.genai.types import LiveConnectConfig, LiveClientMessage, ActivityStart, ActivityEnd, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig, StopCandidateException
+from google.genai.types import LiveConnectConfig, LiveClientMessage, ActivityStart, ActivityEnd, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig
 
 # ***** MODIFICATION START *****
 # Import HttpOptions for API version selection
@@ -505,10 +505,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                             break # Exit loop on API error
 
                 except asyncio.CancelledError: logger.info(f"[{client_id}] receive_from_gemini task cancelled.")
-                except genai.types.StopCandidateException as e: # Catch potential stop exceptions
-                     logger.info(f"[{client_id}] Gemini stream stopped normally via StopCandidateException: {e}")
-                     try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended normally."}))
-                     except Exception: pass
                 except Exception as e:
                     logger.error(f"[{client_id}] Error in receive_from_gemini: {e}", exc_info=True)
                     try: await websocket.send_text(json.dumps({"type": "error", "message": f"Error processing speech: {e}"}))
@@ -558,10 +554,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
     # --- Exception Handling & Cleanup ---
     except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
-    except genai.types.StopCandidateException as e: # Catch stop exceptions outside the loop too
-        logger.info(f"[{client_id}] Gemini stream stopped normally (StopCandidateException): {e}")
-        try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended."}))
-        except Exception: pass
     except ImportError as e: # Catch import errors during setup
         logger.error(f"[{client_id}] Startup failed due to ImportError: {e}")
         try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Import Error: {e}"}))
