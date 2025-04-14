@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 # --- Google AI / ADK Imports ---
 from google import genai
 from google.genai import types
-from google.genai.types import LiveConnectConfig, RealtimeInputConfig, AutomaticActivityDetection, LiveClientMessage, ActivityStart, ActivityEnd, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig
+from google.genai.types import LiveConnectConfig, LiveClientMessage, ActivityStart, ActivityEnd, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig, StopCandidateException
 
 # ***** MODIFICATION START *****
 # Import HttpOptions for API version selection
@@ -32,7 +32,7 @@ try:
     # Import types needed for configuration, content, and ACTIVITY SIGNALS
     from google.genai.types import (
         Content, Part, LiveConnectConfig, SpeechConfig, VoiceConfig,
-        PrebuiltVoiceConfig, RealtimeInputConfig, AutomaticActivityDetection, # Added RealtimeInputConfig, AutomaticActivityDetection
+        PrebuiltVoiceConfig,# Added RealtimeInputConfig, AutomaticActivityDetection
         LiveClientMessage, ActivityStart, ActivityEnd # Added LiveClientMessage, ActivityStart, ActivityEnd
     )
     # Define basic config using imported types
