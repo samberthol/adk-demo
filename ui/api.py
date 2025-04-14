@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse
 # --- Google AI / ADK Imports ---
 from google import genai
 from google.genai import types
+from google.genai.types import LiveConnectConfig, RealtimeInputConfig, AutomaticActivityDetection, LiveClientMessage, ActivityStart, ActivityEnd, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig
 
 # ***** MODIFICATION START *****
 # Import HttpOptions for API version selection
@@ -564,7 +565,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
     # --- Exception Handling & Cleanup ---
     except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
-    except genai.types.generation_types.StopCandidateException as e: # Catch stop exceptions outside the loop too
+    except genai.types.StopCandidateException as e: # Catch stop exceptions outside the loop too
         logger.info(f"[{client_id}] Gemini stream stopped normally (StopCandidateException): {e}")
         try: await websocket.send_text(json.dumps({"type": "info", "message": "Speech stream ended."}))
         except Exception: pass
