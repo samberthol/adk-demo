@@ -1,6 +1,5 @@
 # ui/api.py
 # (Imports and other setup remain the same)
-# ...
 import asyncio
 import os
 import sys
@@ -9,28 +8,34 @@ import time
 import uuid
 import json
 from pathlib import Path
-import io
+import io # For handling byte streams
 
+# --- FastAPI / Starlette Imports ---
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from fastapi.responses import HTMLResponse
 
+# --- Google AI / ADK Imports ---
 from google import genai
-from google.genai import types
+from google.genai import types # Keep top-level types import
 
+# Import specific types needed for Live API (v1alpha)
 try:
     from google.genai.types import (
-        Content, Part, HttpOptions, LiveConnectConfig, SpeechConfig,
-        VoiceConfig, PrebuiltVoiceConfig, LiveClientMessage, ActivityStart, ActivityEnd,
-        Blob, LiveClientRealtimeInput, LiveServerMessage, Transcription, UsageMetadata
+        Content, Part, HttpOptions, # HttpOptions for client init
+        LiveConnectConfig, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig, # Config types
+        LiveClientMessage, ActivityStart, ActivityEnd, # Message types
+        Blob, LiveClientRealtimeInput, # Input types
+        LiveServerMessage, Transcription, # Server message types
+        UsageMetadata # Common type
     )
-    # *** MODIFIED: Re-added AUDIO modality and speech_config ***
+    # *** Use "Kore" voice based on docs example ***
     GEMINI_LIVE_CONFIG = LiveConnectConfig(
-        response_modalities=["TEXT", "AUDIO"], # Request both again
-        speech_config=SpeechConfig(           # Add back speech config
-            voice_config=VoiceConfig(         # Add back voice config
-                # Using a potentially common voice, adjust if needed
-                prebuilt_voice_config=PrebuiltVoiceConfig(voice_name="Puck")
+        response_modalities=["TEXT", "AUDIO"], # Keep both TEXT and AUDIO
+        speech_config=SpeechConfig(
+            voice_config=VoiceConfig(
+                # Change voice name here
+                prebuilt_voice_config=PrebuiltVoiceConfig(voice_name="Kore") # Use "Kore"
             )
         )
     )
@@ -51,7 +56,7 @@ except Exception as e:
     GEMINI_LIVE_CONFIG = None
 
 
-# ... (ADK Imports, ffmpeg import, Basic Setup, ADK Init remain the same) ...
+# --- ADK Agent Imports ---
 try:
     from agents.meta.agent import meta_agent
     from google.adk.runners import Runner
@@ -62,6 +67,7 @@ except ImportError as e:
      logger_init.error(f"FastAPI: Failed to import agent modules/ADK components: {e}")
      sys.exit(f"FastAPI startup failed due to missing ADK components: {e}")
 
+# --- Transcoding Import ---
 try:
     import ffmpeg
 except ImportError:
@@ -70,27 +76,29 @@ except ImportError:
     logger_init.warning("ffmpeg-python not installed. Audio input cannot be transcoded.")
     ffmpeg = None
 
+# --- Basic Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("fastapi_app")
+logger = logging.getLogger("fastapi_app") # Main logger for the app
 
 APP_NAME = "gcp_multi_agent_demo_api"
 USER_ID_PREFIX = "fastapi_user_"
 ADK_SESSION_PREFIX = f'adk_session_{APP_NAME}_'
-GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001"
+GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001" # Use the requested live model
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-STREAMING_INTERIM_RESULTS = True
+STREAMING_INTERIM_RESULTS = True # For text transcripts
 
+# Audio constants (Keep these for transcoding)
 TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
-TARGET_FORMAT = 's16le'
+TARGET_FORMAT = 's16le' # Raw PCM signed 16-bit little-endian
 
+# --- ADK Initialization ---
 session_service = InMemorySessionService()
 adk_runner = Runner(agent=meta_agent, app_name=APP_NAME, session_service=session_service)
 active_adk_sessions = {}
 
-
-# --- Google Generative AI Configuration (Using v1alpha) ---
-client = None
+# --- Google Generative AI Configuration (Using v1alpha for the live model) ---
+client = None # Initialize client variable globally
 # ... (client initialization remains the same, using v1alpha) ...
 if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
@@ -152,7 +160,7 @@ def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> 
 app = FastAPI()
 
 # --- Frontend HTML/JS ---
-# (HTML remains the same - JS should now handle received audio bytes via playAudioChunk)
+# (HTML remains the same as previous version with agent response box)
 html = """
 <!DOCTYPE html>
 <html>
@@ -176,6 +184,8 @@ html = """
         <div id="agent-response-box"><strong>Agent:</strong> Waiting for interaction...</div>
 
         <script>
+            // (JavaScript remains the same as previous version with agent response box and improved error handling)
+            // ...
             const statusSpan = document.getElementById('status');
             const interactionDiv = document.getElementById('interaction');
             const agentResponseDiv = document.getElementById('agent-response-box');
@@ -188,7 +198,7 @@ html = """
             let audioQueue = [];
             let isPlaying = false;
             let nextStartTime = 0;
-            const playbackSampleRate = 24000; // Assuming TTS output is 24kHz
+            const playbackSampleRate = 24000;
 
             function initAudioContext() {
                 if (!audioContext) {
@@ -206,11 +216,10 @@ html = """
             async function playAudioChunk(arrayBuffer) {
                  if (!audioContext || arrayBuffer.byteLength === 0) return;
                 try {
-                    // Assuming the received ArrayBuffer is PCM S16LE data at playbackSampleRate
                     const pcm16Data = new Int16Array(arrayBuffer);
                     const float32Data = new Float32Array(pcm16Data.length);
                     for (let i = 0; i < pcm16Data.length; i++) {
-                        float32Data[i] = pcm16Data[i] / 32768.0; // Convert S16 to Float32 range [-1, 1]
+                        float32Data[i] = pcm16Data[i] / 32768.0;
                     }
                     const audioBuffer = audioContext.createBuffer(1, float32Data.length, playbackSampleRate);
                     audioBuffer.copyToChannel(float32Data, 0);
@@ -238,26 +247,23 @@ html = """
             }
 
             function logInteraction(message, type = 'info') {
-                // ... (same as before) ...
                 const p = document.createElement('p');
                 let prefix = '';
                 if (type === 'user') prefix = '<strong>You:</strong> ';
-                else if (type === 'agent') prefix = '<strong>Agent:</strong> '; // Keep prefix for log consistency
+                else if (type === 'agent') prefix = '<strong>Agent:</strong> ';
                 else if (type === 'system') prefix = '<em>System:</em> ';
                 else if (type === 'interim') prefix = '<em>You (interim):</em> ';
                 p.innerHTML = prefix + message;
                 interactionDiv.appendChild(p);
-                interactionDiv.scrollTop = interactionDiv.scrollHeight; // Scroll main log
+                interactionDiv.scrollTop = interactionDiv.scrollHeight;
                 console.log(`${type}: ${message}`);
             }
 
             function updateAgentResponseBox(message) {
-                 // ... (same as before) ...
                  agentResponseDiv.innerHTML = '<strong>Agent:</strong> ' + message;
             }
 
             function sendControlMessage(action) {
-                 // ... (same as before) ...
                  if (websocket && websocket.readyState === WebSocket.OPEN) {
                     try {
                         const messagePayload = {};
@@ -281,7 +287,6 @@ html = """
             }
 
             function connectWebSocket() {
-                 // ... (same as before) ...
                  const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
                 const wsUri = `${wsProto}//${location.host}/ws/audio_gemini`;
                 logInteraction(`Attempting WebSocket connection to: ${wsUri}`, 'system');
@@ -311,18 +316,19 @@ html = """
                         startButton.disabled = true; stopButton.disabled = true;
                     };
                     websocket.onmessage = function(evt) {
-                        // *** UPDATED to handle incoming audio bytes ***
                         if (evt.data instanceof ArrayBuffer) {
                             console.log(`Received audio chunk: ${evt.data.byteLength} bytes`);
                             playAudioChunk(evt.data); // Play received TTS audio
                         } else if (typeof evt.data === 'string') {
-                            // (JSON message handling remains the same)
-                            // ...
                             try {
                                 const msg = JSON.parse(evt.data);
 
-                                if (msg.server_content) {
-                                    const content = msg.server_content;
+                                // --- Improved Message Handling ---
+                                if (msg.type === 'error') { // Check for type: 'error'
+                                    logInteraction(`Server Error: ${msg.message || JSON.stringify(msg)}`, 'system');
+                                } else if (msg.server_content) {
+                                    // ... (handle server_content as before) ...
+                                     const content = msg.server_content;
                                     if (content.input_transcription) {
                                         const transcript = content.input_transcription;
                                         const displayText = transcript.text || '';
@@ -339,7 +345,6 @@ html = """
                                             interactionDiv.scrollTop = interactionDiv.scrollHeight;
                                         }
                                     }
-                                    // Handle Model's Text Turn (still log text even if audio is played)
                                     if (content.model_turn && content.model_turn.parts) {
                                         const textParts = content.model_turn.parts.filter(p => p.text).map(p => p.text).join('');
                                         if (textParts) {
@@ -358,14 +363,13 @@ html = """
                                      logInteraction(`Server GoAway: ${msg.go_away.time_left || 'No time specified'}`, 'system');
                                 } else if (msg.session_resumption_update) {
                                      logInteraction(`Session resumption update. Resumable: ${msg.session_resumption_update.resumable}`, 'system');
-                                } else if (msg.error) {
-                                    logInteraction(`Server Error: ${msg.message || JSON.stringify(msg)}`, 'system');
                                 } else if (msg.type === 'info' || msg.type === 'status') {
                                      logInteraction(msg.message, 'system');
                                 } else {
                                     logInteraction(`Unknown server message structure received.`, 'system');
                                     console.log("Unknown server message:", msg);
                                 }
+                                // --- End Improved Message Handling ---
 
                             } catch (e) {
                                 logInteraction(`Received non-JSON/unparsed text message: ${evt.data}`, 'system');
@@ -471,10 +475,10 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
         return None
 
 
-# --- WebSocket Endpoint (Using Live API via client.aio.live) ---
+# --- WebSocket Endpoint ---
 @app.websocket("/ws/audio_gemini")
 async def websocket_endpoint_gemini(websocket: WebSocket):
-    """Handles WebSocket connections for audio streaming using client.aio.live."""
+    # ... (websocket_endpoint_gemini remains the same, using "Kore" voice config and live_session.receive()) ...
     await websocket.accept()
     client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}"
     logger.info(f"WebSocket connection accepted: {client_id}")
@@ -485,10 +489,8 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
     audio_queue = asyncio.Queue()
 
     try:
-        # ... (Initial checks remain the same) ...
         if client is None: raise ValueError("Google AI Client not initialized.")
         if not live_types_imported or GEMINI_LIVE_CONFIG is None: raise ImportError("Required Live API types or config failed.")
-
 
         adk_session_id = get_or_create_adk_session_sync(client_id)
         await websocket.send_text(json.dumps({"type": "info", "message": f"ADK Session Ready: {adk_session_id}"}))
@@ -497,7 +499,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
         async with client.aio.live.connect(
             model=GEMINI_LIVE_MODEL_NAME,
-            config=GEMINI_LIVE_CONFIG # Use the config with AUDIO modality
+            config=GEMINI_LIVE_CONFIG # Use the config with "Kore" voice
         ) as live_session:
             logger.info(f"[{client_id}] Gemini live session established.")
             logger.info(f"[{client_id}] live_session type: {type(live_session)}")
@@ -508,7 +510,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
             # Task to send audio to Gemini
             async def send_audio_to_gemini():
-                # ... (send_audio_to_gemini remains the same) ...
+                # ... (code remains the same) ...
                 logger.info(f"[{client_id}] send_audio_to_gemini task started.")
                 while True:
                     try:
@@ -548,14 +550,13 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
             # Task to receive responses from Gemini
             async def receive_from_gemini():
-                # ... (receive_from_gemini structure remains the same, uses live_session.receive()) ...
+                # ... (code remains the same, using live_session.receive()) ...
                 logger.info(f"[{client_id}] receive_from_gemini task started.")
                 final_transcript_buffer = ""
                 try:
                     logger.info(f"[{client_id}] Attempting 'async for' loop over live_session.receive()...")
                     async for response in live_session.receive(): # Using .receive() based on examples
                         logger.info(f"[{client_id}] Received message structure from Gemini: {type(response)}")
-                        # logger.debug(f"[{client_id}] Raw Gemini response: {response}")
 
                         if not response:
                             logger.warning(f"[{client_id}] Received empty response object from Gemini.")
@@ -567,7 +568,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                 content_dict = {}
                                 if response.server_content.input_transcription:
                                     transcript = response.server_content.input_transcription
-                                    logger.info(f"[{client_id}] Received transcription part: finished={transcript.finished}, text='{transcript.text}'") # ADDED LOG
+                                    logger.info(f"[{client_id}] Received transcription part: finished={transcript.finished}, text='{transcript.text}'")
                                     content_dict["input_transcription"] = {"text": transcript.text, "finished": transcript.finished}
                                     if transcript.finished:
                                         final_transcript_buffer += transcript.text
@@ -584,10 +585,9 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                     for part in response.server_content.model_turn.parts:
                                         part_dict = {}
                                         if hasattr(part, 'text') and part.text: part_dict['text'] = part.text
-                                        # *** Check for and forward audio bytes if present ***
                                         if hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data:
                                             logger.info(f"[{client_id}] Received audio data (TTS): {len(part.inline_data.data)} bytes - Forwarding")
-                                            await websocket.send_bytes(part.inline_data.data) # Forward TTS bytes
+                                            await websocket.send_bytes(part.inline_data.data)
                                         if part_dict: parts_list.append(part_dict)
                                     if parts_list: content_dict["model_turn"] = {"parts": parts_list}
 
@@ -624,6 +624,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
                         except Exception as processing_err:
                              logger.error(f"[{client_id}] Error processing/serializing server message: {processing_err}", exc_info=True)
+
 
                 except AttributeError as ae:
                      logger.error(f"[{client_id}] AttributeError in receive_from_gemini loop (likely 'receive' missing): {ae}", exc_info=True)
@@ -685,6 +686,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     except Exception as e:
                         logger.error(f"[{client_id}] Error processing text msg: {e}")
 
+
             logger.info(f"[{client_id}] Exited main WS receive loop.")
 
     # --- Exception Handling & Cleanup ---
@@ -704,12 +706,14 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
          try: await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Cannot connect to Live API. Check API version/model compatibility."}))
          except Exception: pass
     except Exception as e:
-        logger.error(f"Unexpected error in WS handler {client_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error in WS handler {client_id} (potentially during connect): {e}", exc_info=True)
         try:
             if websocket.client_state != WebSocketState.DISCONNECTED:
-                 await websocket.send_text(json.dumps({"type": "error", "message": f"Server error: {str(e)}"}))
+                 await websocket.send_text(json.dumps({"type": "error", "message": f"Server connection/handler error: {str(e)}"}))
         except Exception: pass
     finally:
+        # (Cleanup remains the same)
+        # ...
         logger.info(f"Closing WS connection & cleaning up for {client_id}.")
         if send_task and not send_task.done(): send_task.cancel()
         if receive_task and not receive_task.done(): receive_task.cancel()
