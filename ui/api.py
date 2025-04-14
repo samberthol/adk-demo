@@ -21,22 +21,16 @@ from google.genai import types # Keep top-level types import
 # Import specific types needed for Live API (v1alpha)
 try:
     from google.genai.types import (
-        Content, Part, HttpOptions, # HttpOptions for client init
-        LiveConnectConfig, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig, # Config types
-        LiveClientMessage, ActivityStart, ActivityEnd, # Message types
-        Blob, LiveClientRealtimeInput, # Input types
-        LiveServerMessage, Transcription, # Server message types
-        UsageMetadata # Common type
+        Content, Part, HttpOptions, LiveConnectConfig,
+        AudioTranscriptionConfig, # Added for input config
+        LiveClientMessage, ActivityStart, ActivityEnd,
+        Blob, LiveClientRealtimeInput, LiveServerMessage, Transcription, UsageMetadata
+        # Removed SpeechConfig, VoiceConfig etc. as only TEXT output requested
     )
-    # *** Use "Kore" voice based on docs example ***
+    # *** MODIFIED: Request TEXT only, but add input_audio_transcription config ***
     GEMINI_LIVE_CONFIG = LiveConnectConfig(
-        response_modalities=["TEXT", "AUDIO"], # Keep both TEXT and AUDIO
-        speech_config=SpeechConfig(
-            voice_config=VoiceConfig(
-                # Change voice name here
-                prebuilt_voice_config=PrebuiltVoiceConfig(voice_name="Kore") # Use "Kore"
-            )
-        )
+        response_modalities=["TEXT"], # Request TEXT modality only
+        input_audio_transcription=AudioTranscriptionConfig() # Add config for INPUT audio
     )
     live_types_imported = True
 except ImportError as e:
@@ -447,22 +441,22 @@ async def get_test_page():
 
 # --- Helper function for transcoding ---
 async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
-    # ... (transcode_audio_ffmpeg remains the same) ...
+    # ... (transcode_audio_ffmpeg remains the same, including logging) ...
     """Transcodes audio bytes using ffmpeg-python to PCM S16LE @ 16kHz."""
     if not ffmpeg: logger.error("ffmpeg-python library not available."); return None
     try:
-        logger.info(f"[{uuid.uuid4()}] Starting transcoding for {len(input_bytes)} bytes...")
+        logger.info(f"[{uuid.uuid4()}] Starting transcoding for {len(input_bytes)} bytes...") # Keep Log
         process = (
             ffmpeg
             .input('pipe:0')
             .output('pipe:1', format=TARGET_FORMAT, acodec='pcm_s16le', ac=TARGET_CHANNELS, ar=TARGET_SAMPLE_RATE)
-            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=False)
+            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=False) # Keep quiet=False for ffmpeg logs
         )
         stdout, stderr = await asyncio.to_thread(process.communicate, input=input_bytes)
         if process.returncode != 0:
-            logger.error(f"[{uuid.uuid4()}] FFmpeg failed: {process.returncode}\nStderr: {stderr.decode()}")
+            logger.error(f"[{uuid.uuid4()}] FFmpeg failed: {process.returncode}\nStderr: {stderr.decode()}") # Keep Log
             return None
-        logger.info(f"[{uuid.uuid4()}] Transcoding successful. Output size: {len(stdout)} bytes.")
+        logger.info(f"[{uuid.uuid4()}] Transcoding successful. Output size: {len(stdout)} bytes.") # Keep Log
         return stdout
     except ffmpeg.Error as e:
         logger.error(f"[{uuid.uuid4()}] ffmpeg-python error: {e}\n{getattr(e, 'stderr', b'').decode()}", exc_info=True)
@@ -475,7 +469,7 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/audio_gemini")
 async def websocket_endpoint_gemini(websocket: WebSocket):
-    # ... (websocket_endpoint_gemini remains the same, using "Kore" voice config and introspection logging) ...
+    # ... (websocket_endpoint_gemini remains the same as previous, with TEXT only config + input_audio_transcription) ...
     await websocket.accept()
     client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}"
     logger.info(f"WebSocket connection accepted: {client_id}")
@@ -496,7 +490,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
         async with client.aio.live.connect(
             model=GEMINI_LIVE_MODEL_NAME,
-            config=GEMINI_LIVE_CONFIG # Use the config with "Kore" voice
+            config=GEMINI_LIVE_CONFIG # Use the config with TEXT output + input audio config
         ) as live_session:
             logger.info(f"[{client_id}] Gemini live session established.")
             logger.info(f"[{client_id}] live_session type: {type(live_session)}")
@@ -583,8 +577,8 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                         part_dict = {}
                                         if hasattr(part, 'text') and part.text: part_dict['text'] = part.text
                                         if hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data:
-                                            logger.info(f"[{client_id}] Received audio data (TTS): {len(part.inline_data.data)} bytes - Forwarding")
-                                            await websocket.send_bytes(part.inline_data.data)
+                                            logger.warning(f"[{client_id}] Received unexpected audio data when only TEXT was requested.")
+                                            # await websocket.send_bytes(part.inline_data.data) # Ignoring unexpected audio
                                         if part_dict: parts_list.append(part_dict)
                                     if parts_list: content_dict["model_turn"] = {"parts": parts_list}
 
@@ -638,16 +632,13 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     logger.info(f"[{client_id}] receive_from_gemini task finished.")
 
 
-            # Start background tasks
+            # ... (Starting tasks and main WS receive loop remain the same) ...
             logger.info(f"[{client_id}] Starting background tasks...")
             send_task = asyncio.create_task(send_audio_to_gemini())
             receive_task = asyncio.create_task(receive_from_gemini())
 
-            # Main loop to receive data/signals from client WebSocket
-            # (Main loop remains the same)
             logger.info(f"[{client_id}] Entering main WS receive loop...")
             while True:
-                # ... (code remains the same) ...
                 data = await websocket.receive()
                 log_msg_type = data.get('type')
                 if log_msg_type == 'websocket.receive':
@@ -683,8 +674,8 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     except Exception as e:
                         logger.error(f"[{client_id}] Error processing text msg: {e}")
 
-
             logger.info(f"[{client_id}] Exited main WS receive loop.")
+
 
     # --- Exception Handling & Cleanup ---
     # (Cleanup remains the same)
