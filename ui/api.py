@@ -1,5 +1,4 @@
 # ui/api.py
-# (Imports and other setup remain the same)
 import asyncio
 import os
 import sys
@@ -41,14 +40,12 @@ try:
     )
     live_types_imported = True
 except ImportError as e:
-    # ... (error handling remains the same) ...
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger_init = logging.getLogger("fastapi_app_init_error")
     logger_init.error(f"Critical Import Error for google.genai.types (potentially Live API related): {e}. Live API will likely fail.")
     live_types_imported = False
     GEMINI_LIVE_CONFIG = None
 except Exception as e:
-    # ... (error handling remains the same) ...
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger_init = logging.getLogger("fastapi_app_init_error")
     logger_init.error(f"Error defining GEMINI_LIVE_CONFIG: {e}")
@@ -160,7 +157,7 @@ def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> 
 app = FastAPI()
 
 # --- Frontend HTML/JS ---
-# (HTML remains the same as previous version with agent response box)
+# (HTML remains the same as previous version with agent response box and improved error handling)
 html = """
 <!DOCTYPE html>
 <html>
@@ -184,7 +181,7 @@ html = """
         <div id="agent-response-box"><strong>Agent:</strong> Waiting for interaction...</div>
 
         <script>
-            // (JavaScript remains the same as previous version with agent response box and improved error handling)
+            // (JavaScript remains the same as previous version)
             // ...
             const statusSpan = document.getElementById('status');
             const interactionDiv = document.getElementById('interaction');
@@ -324,7 +321,7 @@ html = """
                                 const msg = JSON.parse(evt.data);
 
                                 // --- Improved Message Handling ---
-                                if (msg.type === 'error') { // Check for type: 'error'
+                                if (msg.type === 'error') { // Check for type: 'error' first
                                     logInteraction(`Server Error: ${msg.message || JSON.stringify(msg)}`, 'system');
                                 } else if (msg.server_content) {
                                     // ... (handle server_content as before) ...
@@ -478,7 +475,7 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/audio_gemini")
 async def websocket_endpoint_gemini(websocket: WebSocket):
-    # ... (websocket_endpoint_gemini remains the same, using "Kore" voice config and live_session.receive()) ...
+    # ... (websocket_endpoint_gemini remains the same, using "Kore" voice config and introspection logging) ...
     await websocket.accept()
     client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}"
     logger.info(f"WebSocket connection accepted: {client_id}")
