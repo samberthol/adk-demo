@@ -20,7 +20,7 @@ steps:
       # Optional: Uncomment the line below to disable Kaniko's own layer caching (stored in registry).
       # Useful for absolute cache clearing, but may slow down builds significantly.
       # - '--cache=false'
-
+ 
   # Step 2: Push step is REMOVED - Kaniko handles the push directly via --destination
 
   # --- Step 3a: Deploy Streamlit Service ---
