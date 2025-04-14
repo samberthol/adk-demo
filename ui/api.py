@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse
 from google import genai
 from google.genai import types # Keep top-level types import
 
-# Import specific types needed for Live API (Ensure these are valid for v1beta or handled by SDK)
+# Import specific types needed for Live API (v1alpha)
 try:
     from google.genai.types import (
         Content, Part, HttpOptions, # HttpOptions for client init
@@ -62,7 +62,6 @@ except ImportError as e:
      logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
      logger_init = logging.getLogger("fastapi_app_init_error")
      logger_init.error(f"FastAPI: Failed to import agent modules/ADK components: {e}")
-     # Consider if sys.exit is appropriate or allow graceful degradation
      sys.exit(f"FastAPI startup failed due to missing ADK components: {e}")
 
 # --- Transcoding Import ---
@@ -81,8 +80,8 @@ logger = logging.getLogger("fastapi_app")
 APP_NAME = "gcp_multi_agent_demo_api"
 USER_ID_PREFIX = "fastapi_user_"
 ADK_SESSION_PREFIX = f'adk_session_{APP_NAME}_'
-# Model name might need adjustment depending on v1beta availability
-GEMINI_LIVE_MODEL_NAME = "models/gemini-1.5-flash-latest" # Using 1.5 flash as -live- may be alpha specific
+# *** Use the requested live model ***
+GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001"
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
 STREAMING_INTERIM_RESULTS = True # For text transcripts
 
@@ -96,22 +95,22 @@ session_service = InMemorySessionService()
 adk_runner = Runner(agent=meta_agent, app_name=APP_NAME, session_service=session_service)
 active_adk_sessions = {}
 
-# --- Google Generative AI Configuration (Attempting v1beta) ---
+# --- Google Generative AI Configuration (Using v1alpha for the live model) ---
 client = None # Initialize client variable globally
 if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
-elif not live_types_imported or HttpOptions is None: # Check if HttpOptions import failed earlier
+elif not live_types_imported or HttpOptions is None:
      logger.error("Cannot configure client: Required google.genai types (HttpOptions or Live API types) failed to import. Check google-genai version.")
 else:
     try:
-        # Initialize the client, explicitly requesting v1beta
+        # *** Initialize the client explicitly requesting v1alpha ***
         client = genai.Client(
             api_key=GOOGLE_API_KEY,
-            http_options=HttpOptions(api_version='v1beta') # Specify v1beta here based on PDF endpoint URL
+            http_options=HttpOptions(api_version='v1alpha') # Must use v1alpha for live models
         )
-        logger.info("Google Generative AI client configured targeting v1beta API.")
+        logger.info("Google Generative AI client configured targeting v1alpha API.")
     except Exception as e:
-         logger.error(f"Failed to configure Google Generative AI client (targeting v1beta): {e}")
+         logger.error(f"Failed to configure Google Generative AI client (targeting v1alpha): {e}")
          # client remains None if initialization fails
 
 # --- ADK Interaction Functions (Sync for simplicity) ---
@@ -184,7 +183,7 @@ html = """
             let audioQueue = [];
             let isPlaying = false;
             let nextStartTime = 0;
-            const playbackSampleRate = 24000; // Standard playback rate, may need adjustment based on TTS output if added
+            const playbackSampleRate = 24000; // Standard playback rate
 
             function initAudioContext() {
                 if (!audioContext) {
@@ -201,7 +200,6 @@ html = """
 
             async function playAudioChunk(arrayBuffer) {
                  if (!audioContext || arrayBuffer.byteLength === 0) return;
-                 // Assuming output audio is PCM S16LE at playbackSampleRate (adjust if TTS provides different format)
                 const pcm16Data = new Int16Array(arrayBuffer);
                 const float32Data = new Float32Array(pcm16Data.length);
                 for (let i = 0; i < pcm16Data.length; i++) { float32Data[i] = pcm16Data[i] / 32768.0; }
@@ -245,17 +243,16 @@ html = """
             function sendControlMessage(action) {
                 if (websocket && websocket.readyState === WebSocket.OPEN) {
                     try {
-                        // Use the structure expected by LiveClientMessage (activity_start / activity_end)
                         const messagePayload = {};
                         if (action === "start_activity") {
-                            messagePayload.activity_start = {};
+                            messagePayload.activity_start = {}; // Send as empty object
                         } else if (action === "end_activity") {
-                            messagePayload.activity_end = {};
+                            messagePayload.activity_end = {}; // Send as empty object
                         } else {
                             logInteraction(`Unknown control action: ${action}`, 'system');
                             return;
                         }
-                        websocket.send(JSON.stringify(messagePayload)); // Send as top-level object
+                        websocket.send(JSON.stringify(messagePayload));
                         logInteraction(`Sent ${action} signal.`, 'system');
                     } catch (e) {
                         console.error(`Error sending ${action}:`, e);
@@ -268,7 +265,6 @@ html = """
 
 
             function connectWebSocket() {
-                // Use wss for secure connection, adjust host/port if needed
                 const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
                 const wsUri = `${wsProto}//${location.host}/ws/audio_gemini`;
                 logInteraction(`Attempting WebSocket connection to: ${wsUri}`, 'system');
@@ -301,7 +297,7 @@ html = """
                         if (evt.data instanceof ArrayBuffer) {
                             // Handle incoming audio from server (TTS output)
                             console.log(`Received audio chunk: ${evt.data.byteLength} bytes`);
-                            playAudioChunk(evt.data);
+                            // playAudioChunk(evt.data); // Audio playback still disabled as only TEXT is requested
                         } else if (typeof evt.data === 'string') {
                             try {
                                 const msg = JSON.parse(evt.data);
@@ -310,31 +306,41 @@ html = """
                                     const content = msg.server_content;
                                     if (content.input_transcription) {
                                         const transcript = content.input_transcription;
-                                        if (transcript.finished) {
-                                            logInteraction(transcript.text, 'user'); // Log final transcript as user speech
-                                        } else if (STREAMING_INTERIM_RESULTS && transcript.text) {
-                                            logInteraction(transcript.text, 'interim'); // Log interim transcript
+                                        // Combine final and interim transcript handling
+                                        const displayText = transcript.text || '';
+                                        if (transcript.finished && displayText.trim()) {
+                                            logInteraction(displayText, 'user');
+                                        } else if (!transcript.finished && STREAMING_INTERIM_RESULTS && displayText.trim()) {
+                                             // Simple display logic: replace last interim with new one
+                                             const lastInterim = interactionDiv.querySelector('p:last-child em:first-child');
+                                             if (lastInterim && lastInterim.textContent === 'You (interim):') {
+                                                 lastInterim.parentNode.innerHTML = '<em>You (interim):</em> ' + displayText;
+                                                 interactionDiv.scrollTop = interactionDiv.scrollHeight; // Scroll down
+                                             } else {
+                                                 logInteraction(displayText, 'interim');
+                                             }
                                         }
                                     }
                                     if (content.model_turn && content.model_turn.parts) {
-                                         // Assuming model response is text here (since audio modality is commented out in config)
+                                         // Assuming model response is text here
                                          const textParts = content.model_turn.parts.filter(p => p.text).map(p => p.text).join('');
                                          if (textParts) {
-                                             logInteraction(textParts, 'agent'); // Log model text response
+                                             logInteraction(textParts, 'agent');
                                          }
                                     }
+                                } else if (msg.agent_response) { // Handle agent response separately
+                                    logInteraction(msg.response, 'agent');
                                 } else if (msg.tool_call) {
                                     logInteraction(`Agent wants to call tool: ${JSON.stringify(msg.tool_call)}`, 'system');
-                                    // Handle tool call display if needed
                                 } else if (msg.setup_complete) {
                                     logInteraction("Server setup complete.", 'system');
                                 } else if (msg.go_away) {
                                      logInteraction(`Server GoAway: ${msg.go_away.time_left || 'No time specified'}`, 'system');
                                 } else if (msg.session_resumption_update) {
                                      logInteraction(`Session resumption update. Resumable: ${msg.session_resumption_update.resumable}`, 'system');
-                                } else if (msg.error) { // Assuming error is a top-level field or within a known structure
-                                    logInteraction(`Server Error: ${msg.error.message || JSON.stringify(msg.error)}`, 'system');
-                                } else if (msg.type === 'info' || msg.type === 'status') { // Keep handling for custom info/status messages
+                                } else if (msg.error) {
+                                    logInteraction(`Server Error: ${msg.message || JSON.stringify(msg)}`, 'system');
+                                } else if (msg.type === 'info' || msg.type === 'status') {
                                      logInteraction(msg.message, 'system');
                                 } else {
                                     logInteraction(`Unknown server message structure: ${evt.data}`, 'system');
@@ -363,51 +369,34 @@ html = """
                 if (!websocket || websocket.readyState !== WebSocket.OPEN) {
                      logInteraction("WebSocket not open. Cannot start recording.", 'system'); return;
                 }
-                // --- Send start_activity signal ---
+                // Send start_activity signal
                 sendControlMessage("start_activity");
-                // --- End ---
 
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    // Use a commonly supported mimeType, ensure server transcoding handles it
-                    const options = { mimeType: 'audio/webm;codecs=opus' };
+                    const options = { mimeType: 'audio/webm;codecs=opus' }; // Preferred format
                     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                         logInteraction(`Error: Browser does not support ${options.mimeType}. Trying default.`, 'system');
-                         // Fallback or error handling needed here if default also fails
-                         // For simplicity, assuming WebM/Opus is generally available or server handles WAV if needed
-                         // options = { mimeType: 'audio/wav' }; // Example fallback - requires server to handle WAV
+                         logInteraction(`Warning: Browser does not support ${options.mimeType}. Using default.`, 'system');
+                         delete options.mimeType; // Use browser default if opus not supported
                     }
 
                     mediaRecorder = new MediaRecorder(stream, options);
                     audioChunks = []; // Reset chunks
                     mediaRecorder.ondataavailable = (event) => {
                         if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
-                            // Send audio data chunk wrapped in the expected LiveClientMessage structure
-                            const messagePayload = {
-                                realtime_input: {
-                                    // Send as Blob with appropriate mime_type (matching recording options)
-                                    // The SDK's send_realtime_input expects a media blob, so we mimic sending it raw
-                                    // The Python SDK layer might wrap this further, but sending raw bytes is fundamental
-                                    // Note: Directly sending ArrayBuffer might require specific server handling
-                                    // Sending as Blob/File is more standard for JS WebSocket send()
-                                    media_chunks: [{ /* This structure is based on Python types, might need direct bytes */ }]
-                                }
-                            };
-                            // How to correctly format media_chunks payload needs careful check against raw WS API if not using SDK directly
-                            // For now, sending the raw event.data ArrayBuffer
+                            // Send raw audio chunk directly
                             websocket.send(event.data);
-                            console.log(`Sent audio chunk: ${event.data.byteLength} bytes`);
+                            // console.log(`Sent audio chunk: ${event.data.byteLength} bytes`);
                         }
                     };
                     mediaRecorder.onstop = () => {
                         logInteraction("Recording stopped.", 'system');
                         startButton.disabled = false; stopButton.disabled = true;
-                        // --- Send end_activity signal ---
+                        // Send end_activity signal
                         sendControlMessage("end_activity");
-                        // --- End ---
                         stream.getTracks().forEach(track => track.stop()); // Stop mic access
                     };
-                    mediaRecorder.start(250); // Send chunks every 250ms (adjust as needed)
+                    mediaRecorder.start(250); // Send chunks every 250ms
                     logInteraction("Recording started...", 'system');
                     startButton.disabled = true; stopButton.disabled = false;
                 } catch (err) {
@@ -443,15 +432,14 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
     try:
         process = (
             ffmpeg
-            .input('pipe:0') # Assuming input is webm/opus or similar based on JS
+            .input('pipe:0') # Input format detected by ffmpeg
             .output('pipe:1', format=TARGET_FORMAT, acodec='pcm_s16le', ac=TARGET_CHANNELS, ar=TARGET_SAMPLE_RATE)
-            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=True) # quiet=False for debugging
+            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=True)
         )
         stdout, stderr = await asyncio.to_thread(process.communicate, input=input_bytes)
         if process.returncode != 0:
             logger.error(f"FFmpeg failed: {process.returncode}\n{stderr.decode()}")
             return None
-        # logger.info(f"FFmpeg transcoding successful: Input {len(input_bytes)} bytes -> Output {len(stdout)} bytes")
         return stdout
     except ffmpeg.Error as e:
         logger.error(f"ffmpeg-python error: {e}\n{getattr(e, 'stderr', b'').decode()}", exc_info=True)
@@ -474,7 +462,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
     audio_queue = asyncio.Queue() # Queue for incoming audio bytes from JS client
 
     try:
-        # Check if the client (configured with v1beta) was initialized successfully
+        # Check if the client (configured with v1alpha) was initialized successfully
         if client is None:
             logger.error(f"[{client_id}] Cannot start session: Google AI Client not initialized.")
             await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Google AI Client not initialized."}))
@@ -491,17 +479,15 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
         adk_session_id = get_or_create_adk_session_sync(client_id)
         await websocket.send_text(json.dumps({"type": "info", "message": f"ADK Session Ready: {adk_session_id}"}))
 
-        # Use the globally configured 'client' instance (targeting v1beta)
-        logger.info(f"[{client_id}] Initializing Gemini live session (model: {GEMINI_LIVE_MODEL_NAME}) using configured client...")
+        # Use the globally configured 'client' instance (targeting v1alpha)
+        logger.info(f"[{client_id}] Initializing Gemini live session (model: {GEMINI_LIVE_MODEL_NAME}) using configured client (v1alpha)...")
 
         # Use client.aio.live.connect context manager
         async with client.aio.live.connect(
-            model=GEMINI_LIVE_MODEL_NAME,
-            config=GEMINI_LIVE_CONFIG # Pass the simplified config object
+            model=GEMINI_LIVE_MODEL_NAME, # Use the requested live model
+            config=GEMINI_LIVE_CONFIG # Use the simplified config (TEXT only for now)
         ) as live_session:
             logger.info(f"[{client_id}] Gemini live session established.")
-            # Inform client about activity detection mode (assuming default or manual based on config absence)
-            # Note: Original code didn't set RealtimeInputConfig, implying default (automatic) or manual based on Activity Signals
             await websocket.send_text(json.dumps({"type": "info", "message": "Using manual activity detection (start/stop buttons)."}))
 
 
@@ -509,25 +495,23 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
             async def send_audio_to_gemini():
                 while True:
                     try:
-                        input_chunk = await audio_queue.get() # Get raw chunk (e.g., webm) from queue
-                        if input_chunk is None: break # Signal to stop
+                        input_chunk = await audio_queue.get() # Get raw chunk (e.g., webm)
+                        if input_chunk is None: break
 
                         transcoded_chunk = None
                         if ffmpeg:
                             transcoded_chunk = await transcode_audio_ffmpeg(input_chunk)
                         else:
                              logger.error(f"[{client_id}] Cannot process audio: ffmpeg not available.")
-                             continue # Skip this chunk if ffmpeg is missing
+                             continue
 
                         if transcoded_chunk:
-                            # Send transcoded PCM audio using LiveClientMessage and LiveClientRealtimeInput
+                            # Send transcoded PCM audio using LiveClientMessage
                             await live_session.send(LiveClientMessage(
                                 realtime_input=LiveClientRealtimeInput(
-                                    # Ensure correct Blob structure and mime_type
                                     media_chunks=[Blob(data=transcoded_chunk, mime_type="audio/pcm")]
                                 )
                             ))
-                            # logger.debug(f"[{client_id}] Sent {len(transcoded_chunk)} bytes of PCM audio to Gemini.")
                         else: logger.warning(f"[{client_id}] Transcoding failed, audio chunk skipped.")
 
                         audio_queue.task_done()
@@ -541,83 +525,83 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     async for response in live_session: # Iterate through server messages
                         if not response: continue
 
-                        # Forward raw server message for JS client to parse (or parse specific parts here)
-                        # Need to convert the response object (protobuf-like) to a JSON serializable dict
-                        # This requires knowing the structure of LiveServerMessage and its possible fields
+                        # Convert response to dict for JSON serialization
                         response_dict = {}
-                        if response.server_content:
-                            content_dict = {}
-                            if response.server_content.input_transcription:
-                                transcript = response.server_content.input_transcription
-                                content_dict["input_transcription"] = {"text": transcript.text, "finished": transcript.finished}
-                                # Handle transcript buffer for ADK call
-                                if transcript.finished:
-                                    final_transcript_buffer += transcript.text
-                                    logger.info(f"[{client_id}] Final Transcript: '{final_transcript_buffer}'")
-                                    if final_transcript_buffer.strip() and adk_session_id:
-                                        await websocket.send_text(json.dumps({"type": "info", "message": "Sending to agent..."}))
-                                        loop = asyncio.get_running_loop()
-                                        agent_response = await loop.run_in_executor(None, run_adk_turn_sync, client_id, adk_session_id, final_transcript_buffer)
-                                        # Send agent response back to client
-                                        await websocket.send_text(json.dumps({"type": "agent_response", "response": agent_response}))
-                                    final_transcript_buffer = "" # Reset buffer
-                                elif STREAMING_INTERIM_RESULTS and transcript.text:
-                                    # Send interim transcript update (can be handled by JS)
-                                    pass # JS already handles interim display based on parsing full message
+                        try:
+                            # Dynamically build the dict based on which oneof field is present
+                            if response.server_content:
+                                content_dict = {}
+                                if response.server_content.input_transcription:
+                                    transcript = response.server_content.input_transcription
+                                    content_dict["input_transcription"] = {"text": transcript.text, "finished": transcript.finished}
+                                    # Handle transcript buffer for ADK call
+                                    if transcript.finished:
+                                        final_transcript_buffer += transcript.text
+                                        logger.info(f"[{client_id}] Final Transcript: '{final_transcript_buffer}'")
+                                        if final_transcript_buffer.strip() and adk_session_id:
+                                            await websocket.send_text(json.dumps({"type": "info", "message": "Sending to agent..."}))
+                                            loop = asyncio.get_running_loop()
+                                            # Run ADK sync function in executor
+                                            agent_response = await loop.run_in_executor(None, run_adk_turn_sync, client_id, adk_session_id, final_transcript_buffer)
+                                            # Send agent response back to client
+                                            await websocket.send_text(json.dumps({"type": "agent_response", "response": agent_response}))
+                                        final_transcript_buffer = "" # Reset buffer
 
-                            if response.server_content.model_turn:
-                                # Extract text and potentially audio data
-                                parts_list = []
-                                for part in response.server_content.model_turn.parts:
-                                     part_dict = {}
-                                     if hasattr(part, 'text') and part.text:
-                                         part_dict['text'] = part.text
-                                     if hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data:
-                                         # If audio modality was requested, send bytes back
-                                         # Since only TEXT is requested now, this block won't execute
-                                         logger.info(f"[{client_id}] Received audio data: {len(part.inline_data.data)} bytes")
-                                         await websocket.send_bytes(part.inline_data.data)
-                                         # We might not add audio bytes to the JSON response dict
-                                     if part_dict: parts_list.append(part_dict)
-                                if parts_list:
-                                     content_dict["model_turn"] = {"parts": parts_list}
+                                if response.server_content.model_turn:
+                                    parts_list = []
+                                    for part in response.server_content.model_turn.parts:
+                                        part_dict = {}
+                                        if hasattr(part, 'text') and part.text: part_dict['text'] = part.text
+                                        # Handle potential audio bytes if AUDIO modality requested later
+                                        if hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data:
+                                            logger.info(f"[{client_id}] Received audio data (TTS): {len(part.inline_data.data)} bytes - Forwarding")
+                                            await websocket.send_bytes(part.inline_data.data) # Forward TTS bytes
+                                        if part_dict: parts_list.append(part_dict)
+                                    if parts_list: content_dict["model_turn"] = {"parts": parts_list}
 
-                            # Add other potential fields from server_content if needed (e.g., grounding_metadata)
-                            if content_dict: response_dict["server_content"] = content_dict
+                                # Add other server_content fields if needed
+                                if content_dict: response_dict["server_content"] = content_dict
 
-                        elif response.tool_call:
-                             response_dict["tool_call"] = {"function_calls": [{"name": fc.name, "args": fc.args, "id": fc.id} for fc in response.tool_call.function_calls]}
-                        elif response.setup_complete:
-                             response_dict["setup_complete"] = {}
-                        elif response.go_away:
-                             response_dict["go_away"] = {"time_left": str(response.go_away.time_left)} # Convert duration if needed
-                        elif response.session_resumption_update:
-                              response_dict["session_resumption_update"] = {
-                                  "new_handle": response.session_resumption_update.new_handle,
-                                  "resumable": response.session_resumption_update.resumable
-                              }
-                        # Add other message types as needed (tool_call_cancellation, error)
-                        elif response.error: # Assuming 'error' attribute exists based on previous code
-                             # Format error appropriately - structure might vary
-                             error_detail = getattr(response.error, 'message', str(response.error))
-                             logger.error(f"[{client_id}] Gemini live session error: {error_detail}")
-                             response_dict["error"] = {"message": error_detail }
+                            elif response.tool_call:
+                                response_dict["tool_call"] = {"function_calls": [{"name": fc.name, "args": fc.args, "id": fc.id} for fc in response.tool_call.function_calls]}
+                            elif response.setup_complete:
+                                response_dict["setup_complete"] = {}
+                            elif response.go_away:
+                                response_dict["go_away"] = {"time_left": str(response.go_away.time_left)}
+                            elif response.session_resumption_update:
+                                response_dict["session_resumption_update"] = {
+                                    "new_handle": response.session_resumption_update.new_handle,
+                                    "resumable": response.session_resumption_update.resumable
+                                }
+                            elif response.error:
+                                 error_detail = getattr(response.error, 'message', str(response.error))
+                                 logger.error(f"[{client_id}] Gemini live session error: {error_detail}")
+                                 response_dict["error"] = {"message": error_detail }
+                            # Add usage_metadata if present (common field)
+                            if response.usage_metadata:
+                                 # Convert UsageMetadata to dict if needed (structure might be complex)
+                                 response_dict["usage_metadata"] = { "prompt_token_count": response.usage_metadata.prompt_token_count, "total_token_count": response.usage_metadata.total_token_count } # Example fields
 
+                            # Send the structured JSON message to the client
+                            if response_dict:
+                                await websocket.send_text(json.dumps(response_dict))
+                            else:
+                                logger.warning(f"[{client_id}] Received empty/unhandled server message structure.")
 
-                        # Send the structured JSON message to the client
-                        if response_dict:
-                            await websocket.send_text(json.dumps(response_dict))
+                        except Exception as serialization_err:
+                             logger.error(f"[{client_id}] Error serializing server message: {serialization_err}", exc_info=True)
+
 
                 except asyncio.CancelledError: logger.info(f"[{client_id}] receive_from_gemini task cancelled.")
                 except Exception as e:
                     logger.error(f"[{client_id}] Error in receive_from_gemini: {e}", exc_info=True)
                     try: await websocket.send_text(json.dumps({"type": "error", "message": f"Error processing speech: {e}"}))
                     except WebSocketDisconnect: pass
-                    except Exception: pass # Ignore further errors if WS already closed
+                    except Exception: pass
                 finally: logger.info(f"[{client_id}] receive_from_gemini finished.")
 
 
-            # Start background tasks for sending audio and receiving responses
+            # Start background tasks
             send_task = asyncio.create_task(send_audio_to_gemini())
             receive_task = asyncio.create_task(receive_from_gemini())
 
@@ -630,38 +614,32 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     break
 
                 if data['type'] == 'bytes':
-                    # Put received raw audio chunk (e.g., webm) into the queue for processing
-                    await audio_queue.put(data['bytes'])
+                    await audio_queue.put(data['bytes']) # Queue raw audio chunk
                 elif data['type'] == 'text':
                     try:
                         msg = json.loads(data['text'])
-                        # Handle control signals (start/end activity) using LiveClientMessage
-                        if msg.get("activity_start") is not None: # Check for the key presence
+                        # Handle control signals using LiveClientMessage structure
+                        if msg.get("activity_start") is not None:
                              logger.info(f"[{client_id}] Received start_activity signal.")
                              await live_session.send(LiveClientMessage(activity_start=ActivityStart()))
-                        elif msg.get("activity_end") is not None: # Check for the key presence
+                        elif msg.get("activity_end") is not None:
                              logger.info(f"[{client_id}] Received end_activity signal.")
                              await live_session.send(LiveClientMessage(activity_end=ActivityEnd()))
-                        # Handle potential tool responses from client if needed (not implemented in JS)
-                        elif msg.get("tool_response"):
-                            logger.info(f"[{client_id}] Received tool_response signal (not fully handled).")
-                            # Need to construct LiveClientToolResponse properly if implementing this
-                            pass
                         else:
                              logger.warning(f"[{client_id}] Received unknown text message structure: {data['text']}")
                     except json.JSONDecodeError:
                         logger.warning(f"[{client_id}] Received non-JSON text: {data['text']}")
                     except AttributeError as ae:
-                         # Catch errors if live_session doesn't support send or specific messages
-                         logger.error(f"[{client_id}] Error sending message to live session (likely API incompatibility): {ae}")
+                         logger.error(f"[{client_id}] Error sending message to live session (API incompatibility?): {ae}")
                          await websocket.send_text(json.dumps({"type": "error", "message": f"Server error interacting with Live API: {ae}"}))
-                         break # Stop processing if session interaction fails
+                         break
                     except Exception as e:
                         logger.error(f"[{client_id}] Error processing text msg: {e}")
 
             logger.info(f"[{client_id}] Exited main WS receive loop.")
 
     # --- Exception Handling & Cleanup ---
+    # (Keep the same robust cleanup as the previous full version)
     except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
     except ImportError as e:
         logger.error(f"[{client_id}] Startup failed due to ImportError: {e}")
@@ -672,9 +650,8 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
         try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Config Error: {e}"}))
         except Exception: pass
     except AttributeError as ae:
-         # Catch AttributeError during client.aio.live.connect if 'live' doesn't exist
-         logger.error(f"[{client_id}] Failed to connect to Live API (likely API version incompatibility or client issue): {ae}", exc_info=True)
-         try: await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Cannot connect to Live API. Check API version/client configuration."}))
+         logger.error(f"[{client_id}] Failed to connect to Live API (likely API version/model incompatibility): {ae}", exc_info=True)
+         try: await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Cannot connect to Live API. Check API version/model compatibility."}))
          except Exception: pass
     except Exception as e:
         logger.error(f"Unexpected error in WS handler {client_id}: {e}", exc_info=True)
@@ -684,18 +661,15 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
         except Exception: pass
     finally:
         logger.info(f"Closing WS connection & cleaning up for {client_id}.")
-        # Gracefully stop tasks and queue
         if send_task and not send_task.done(): send_task.cancel()
         if receive_task and not receive_task.done(): receive_task.cancel()
-        try: await audio_queue.put(None) # Signal sender task to stop
+        try: await audio_queue.put(None)
         except Exception: pass
         try:
             tasks = [t for t in [send_task, receive_task] if t]
             if tasks: await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as gather_err: logger.error(f"[{client_id}] Error during task cleanup: {gather_err}")
-        # Clean up ADK session link
         if client_id in active_adk_sessions: del active_adk_sessions[client_id]; logger.info(f"Removed ADK session link for {client_id}.")
-        # Ensure WebSocket is closed
         try:
             ws_state = getattr(websocket, 'client_state', None)
             if ws_state and ws_state != WebSocketState.DISCONNECTED:
@@ -711,4 +685,4 @@ if __name__ == "__main__":
         logger.error("FATAL: Google AI Client could not be initialized. API calls might fail.")
     if ffmpeg is None:
         logger.warning("WARNING: ffmpeg-python not found, audio transcoding will fail.")
-    uvicorn.run("ui.api:app", host="0.0.0.0", port=8000, reload=True) # Consider reload=False for production
+    uvicorn.run("ui.api:app", host="0.0.0.0", port=8000, reload=True)
