@@ -43,14 +43,7 @@ try:
             voice_config=VoiceConfig(
                 prebuilt_voice_config=PrebuiltVoiceConfig(voice_name="Puck") # Example voice
             )
-        ),
-        # Add configuration to disable automatic activity detection
-        # This field caused the error before; v1alpha might support it here.
-        realtime_input_config=RealtimeInputConfig(
-            automatic_activity_detection=AutomaticActivityDetection(disabled=True)
-            # You could add activity_handling and turn_coverage here if needed
         )
-        # Add other configs like session resumption if needed
     )
 except ImportError as e:
     logging.error(f"Critical Import Error for google.genai.types: {e}. Check library version.")
