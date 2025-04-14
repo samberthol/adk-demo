@@ -91,7 +91,6 @@ adk_runner = Runner(agent=meta_agent, app_name=APP_NAME, session_service=session
 active_adk_sessions = {}
 
 # ***** MODIFICATION START *****
-# --- Google Generative AI Configuration (using v1alpha) ---
 client = None # Initialize client variable globally
 if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
@@ -101,14 +100,10 @@ else:
     try:
         # Initialize the client directly, passing the API key and http_options
         client = genai.Client(
-            api_key=GOOGLE_API_KEY,
-            http_options=HttpOptions(api_version='v1alpha') # Specify v1alpha here
+            api_key=GOOGLE_API_KEY
         )
-        logger.info("Google Generative AI client configured using v1alpha API.")
     except Exception as e:
          logger.error(f"Failed to configure Google Generative AI client: {e}")
-         # client remains None if initialization fails
-# ***** MODIFICATION END *****
 
 
 # --- ADK Interaction Functions (Sync for simplicity) ---
