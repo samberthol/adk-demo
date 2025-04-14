@@ -6,7 +6,7 @@ google-auth
 google-adk
 pandas
 google-api-core
-google-genai
+google-genai>=1.10.0
 nest-asyncio
 fastapi
 uvicorn[standard]
