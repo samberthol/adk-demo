@@ -1,24 +1,19 @@
 # cloudbuild-feature.yaml
-# Builds ONE image using Kaniko, deploys it to TWO Cloud Run services.
+# Builds ONE image using Kaniko, deploys it to TWO Cloud Run services:
+# 1. Streamlit UI service (port 8080)
+# 2. FastAPI API/WebSocket service (port 8000)
+# Uses substitutions provided at trigger time.
 
 steps:
   # Step 1: Build and Push using Kaniko
-  - name: 'gcr.io/kaniko-project/executor:latest'
-    id: Build
+  - name: 'gcr.io/kaniko-project/executor:latest' # Use Kaniko executor
+    id: Build  # Keep the ID the same for waitFor dependencies
     args:
       - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--context=dir://.'
       - '--dockerfile=Dockerfile'
-      # - '--cache=false' # Optional: Uncomment to disable Kaniko layer caching
 
-  # Step 1.5: Wait for Artifact Registry propagation
-  - name: 'ubuntu' # Using a lightweight image for the sleep command
-    id: Wait-For-Push
-    entrypoint: 'sleep'
-    args: ['15'] # Wait for 15 seconds
-    waitFor: ['Build'] # Ensure this runs after the build step
-
-  # --- Step 2a: Deploy Streamlit Service ---
+  # --- Step 3a: Deploy Streamlit Service ---
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-Streamlit
     entrypoint: gcloud
@@ -27,7 +22,7 @@ steps:
       - 'deploy'
       - '${_SERVICE_NAME_STREAMLIT}'
       - '--project=${_GCP_PROJECT_ID}'
-      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}' # Image built by Kaniko
       - '--region=${_REGION}'
       - '--platform=managed'
       - '--port=8080'
@@ -37,9 +32,10 @@ steps:
       - '--args=run,ui/app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true'
       - '--memory=1Gi'
       - '--quiet'
-    waitFor: ['Wait-For-Push'] # Changed to wait for the sleep step
+    # Depends on the Kaniko build finishing
+    waitFor: ['Build'] # Changed from 'Push'
 
-  # --- Step 2b: Deploy FastAPI Service ---
+  # --- Step 3b: Deploy FastAPI Service ---
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-FastAPI
     entrypoint: gcloud
@@ -48,7 +44,7 @@ steps:
       - 'deploy'
       - '${_SERVICE_NAME_FASTAPI}'
       - '--project=${_GCP_PROJECT_ID}'
-      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}' # Image built by Kaniko
       - '--region=${_REGION}'
       - '--platform=managed'
       - '--port=8000'
@@ -59,19 +55,15 @@ steps:
       - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000'
       - '--memory=1Gi'
       - '--quiet'
-    waitFor: ['Wait-For-Push'] # Changed to wait for the sleep step
-
-# images section: List the image tagged with SHORT_SHA (Kaniko pushes this)
-images:
-  - '${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
+    waitFor: ['Build'] # Changed from 'Push'
 
 substitutions:
   _GCP_PROJECT_ID: ''
   _REGION: ''
   _REPO_ID: ''
   _IMAGE_NAME: ''
-  _SERVICE_NAME_STREAMLIT: 'adk-multi-agent-streamlit'
-  _SERVICE_NAME_FASTAPI: 'adk-multi-agent-api'
+  _SERVICE_NAME_STREAMLIT: 'adk-multi-agent-streamlit' # Example name, provide yours
+  _SERVICE_NAME_FASTAPI: 'adk-multi-agent-api'      # Example name, provide yours
   _GOOGLE_API_KEY: ''
   _AGENT_MODEL_NAME: ''
   _BQ_DEFAULT_LOCATION: ''
@@ -86,6 +78,7 @@ substitutions:
   # Derived variable
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
 
+# options section remains the same
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
+  machineType: 'E2_HIGHCPU_8' # Consider if Kaniko needs a different machine type
