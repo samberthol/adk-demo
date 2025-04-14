@@ -1,4 +1,5 @@
 # ui/api.py
+# (Imports and other setup remain the same as the previous correct version)
 import asyncio
 import os
 import sys
@@ -7,31 +8,23 @@ import time
 import uuid
 import json
 from pathlib import Path
-import io # For handling byte streams
+import io
 
-# --- FastAPI / Starlette Imports ---
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 from fastapi.responses import HTMLResponse
 
-# --- Google AI / ADK Imports ---
 from google import genai
-from google.genai import types # Keep top-level types import
+from google.genai import types
 
-# Import specific types needed for Live API (v1alpha)
 try:
     from google.genai.types import (
-        Content, Part, HttpOptions, # HttpOptions for client init
-        LiveConnectConfig, SpeechConfig, VoiceConfig, PrebuiltVoiceConfig, # Config types
-        LiveClientMessage, ActivityStart, ActivityEnd, # Message types
-        Blob, LiveClientRealtimeInput, # Input types
-        LiveServerMessage, Transcription, # Server message types
-        UsageMetadata # Common type
+        Content, Part, HttpOptions, LiveConnectConfig, SpeechConfig,
+        VoiceConfig, PrebuiltVoiceConfig, LiveClientMessage, ActivityStart, ActivityEnd,
+        Blob, LiveClientRealtimeInput, LiveServerMessage, Transcription, UsageMetadata
     )
-    # Define config for Live API (Simplified initially)
     GEMINI_LIVE_CONFIG = LiveConnectConfig(
-        response_modalities=["TEXT"], # Start with only TEXT modality
-        # Keep speech config commented out until basic text works
+        response_modalities=["TEXT"],
         # speech_config=SpeechConfig(
         #     voice_config=VoiceConfig(
         #         prebuilt_voice_config=PrebuiltVoiceConfig(voice_name="Puck")
@@ -52,7 +45,6 @@ except Exception as e:
     live_types_imported = False
     GEMINI_LIVE_CONFIG = None
 
-# --- ADK Agent Imports ---
 try:
     from agents.meta.agent import meta_agent
     from google.adk.runners import Runner
@@ -63,7 +55,6 @@ except ImportError as e:
      logger_init.error(f"FastAPI: Failed to import agent modules/ADK components: {e}")
      sys.exit(f"FastAPI startup failed due to missing ADK components: {e}")
 
-# --- Transcoding Import ---
 try:
     import ffmpeg
 except ImportError:
@@ -72,47 +63,39 @@ except ImportError:
     logger_init.warning("ffmpeg-python not installed. Audio input cannot be transcoded.")
     ffmpeg = None
 
-# --- Basic Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("fastapi_app") # Main logger for the app
+logger = logging.getLogger("fastapi_app")
 
 APP_NAME = "gcp_multi_agent_demo_api"
 USER_ID_PREFIX = "fastapi_user_"
 ADK_SESSION_PREFIX = f'adk_session_{APP_NAME}_'
-GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001" # Use the requested live model
+GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001"
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-STREAMING_INTERIM_RESULTS = True # For text transcripts
+STREAMING_INTERIM_RESULTS = True
 
-# Audio constants (Keep these for transcoding)
 TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
-TARGET_FORMAT = 's16le' # Raw PCM signed 16-bit little-endian
+TARGET_FORMAT = 's16le'
 
-# --- ADK Initialization ---
 session_service = InMemorySessionService()
 adk_runner = Runner(agent=meta_agent, app_name=APP_NAME, session_service=session_service)
 active_adk_sessions = {}
 
-# --- Google Generative AI Configuration (Using v1alpha for the live model) ---
-client = None # Initialize client variable globally
+client = None
 if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
 elif not live_types_imported or HttpOptions is None:
-     logger.error("Cannot configure client: Required google.genai types (HttpOptions or Live API types) failed to import. Check google-genai version.")
+     logger.error("Cannot configure client: Required google.genai types failed to import.")
 else:
     try:
-        # Initialize the client explicitly requesting v1alpha
         client = genai.Client(
             api_key=GOOGLE_API_KEY,
-            http_options=HttpOptions(api_version='v1alpha') # Must use v1alpha for live models
+            http_options=HttpOptions(api_version='v1alpha')
         )
         logger.info("Google Generative AI client configured targeting v1alpha API.")
     except Exception as e:
          logger.error(f"Failed to configure Google Generative AI client (targeting v1alpha): {e}")
-         # client remains None if initialization fails
 
-# --- ADK Interaction Functions (Sync for simplicity) ---
-# (get_or_create_adk_session_sync remains the same)
 def get_or_create_adk_session_sync(user_id: str) -> str:
     # ... (code remains the same) ...
     if user_id in active_adk_sessions:
@@ -135,7 +118,6 @@ def get_or_create_adk_session_sync(user_id: str) -> str:
            raise # Re-raise the exception
         return session_id
 
-# (run_adk_turn_sync remains the same)
 def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> str:
     # ... (code remains the same) ...
     logger.info(f"ADK Run: Session {session_id}, Query: '{user_message_text[:100]}...'")
@@ -152,10 +134,9 @@ def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> 
     return final_response_text
 
 
-# --- FastAPI App ---
 app = FastAPI()
 
-# --- Frontend HTML/JS (Added separate div for agent response) ---
+# --- Frontend HTML/JS ---
 # (HTML remains the same as previous version)
 html = """
 <!DOCTYPE html>
@@ -436,10 +417,10 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
     """Transcodes audio bytes using ffmpeg-python to PCM S16LE @ 16kHz."""
     if not ffmpeg: logger.error("ffmpeg-python library not available."); return None
     try:
-        logger.info(f"[{uuid.uuid4()}] Starting transcoding for {len(input_bytes)} bytes...") # ADDED LOG
+        logger.info(f"[{uuid.uuid4()}] Starting transcoding for {len(input_bytes)} bytes...")
         process = (
             ffmpeg
-            .input('pipe:0') # Input format detected by ffmpeg
+            .input('pipe:0')
             .output('pipe:1', format=TARGET_FORMAT, acodec='pcm_s16le', ac=TARGET_CHANNELS, ar=TARGET_SAMPLE_RATE)
             .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=False) # Set quiet=False for ffmpeg logs
         )
@@ -447,7 +428,7 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
         if process.returncode != 0:
             logger.error(f"[{uuid.uuid4()}] FFmpeg failed: {process.returncode}\nStderr: {stderr.decode()}") # Log stderr
             return None
-        logger.info(f"[{uuid.uuid4()}] Transcoding successful. Output size: {len(stdout)} bytes.") # ADDED LOG
+        logger.info(f"[{uuid.uuid4()}] Transcoding successful. Output size: {len(stdout)} bytes.")
         return stdout
     except ffmpeg.Error as e:
         logger.error(f"[{uuid.uuid4()}] ffmpeg-python error: {e}\n{getattr(e, 'stderr', b'').decode()}", exc_info=True)
@@ -462,8 +443,8 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
 async def websocket_endpoint_gemini(websocket: WebSocket):
     """Handles WebSocket connections for audio streaming using client.aio.live."""
     await websocket.accept()
-    client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}" # Generate unique ID per connection
-    logger.info(f"WebSocket connection accepted: {client_id}") # Use client_id in logs
+    client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}"
+    logger.info(f"WebSocket connection accepted: {client_id}")
     adk_session_id = None
     live_session = None
     send_task = None
@@ -472,17 +453,10 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
     try:
         # ... (Initial checks remain the same) ...
-        if client is None:
-            logger.error(f"[{client_id}] Cannot start session: Google AI Client not initialized.")
-            await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Google AI Client not initialized."}))
-            await websocket.close(code=1011)
-            return
-
+        if client is None: # Check if client is initialized
+            raise ValueError("Google AI Client not initialized.") # Raise error to prevent proceeding
         if not live_types_imported or GEMINI_LIVE_CONFIG is None:
-            logger.error(f"[{client_id}] Cannot start session: Live API types failed to import or GEMINI_LIVE_CONFIG is invalid.")
-            await websocket.send_text(json.dumps({"type": "error", "message": "Server error: Live API components not available."}))
-            await websocket.close(code=1011)
-            return
+             raise ImportError("Required Live API types or config failed.") # Raise error
 
 
         adk_session_id = get_or_create_adk_session_sync(client_id)
@@ -494,37 +468,46 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
             model=GEMINI_LIVE_MODEL_NAME,
             config=GEMINI_LIVE_CONFIG
         ) as live_session:
+            # *** ADDED LOGGING TO INSPECT THE SESSION OBJECT ***
             logger.info(f"[{client_id}] Gemini live session established.")
+            logger.info(f"[{client_id}] live_session type: {type(live_session)}")
+            try:
+                logger.info(f"[{client_id}] live_session dir: {dir(live_session)}")
+            except Exception as inspect_err:
+                 logger.error(f"[{client_id}] Error inspecting live_session: {inspect_err}")
+            # *** END ADDED LOGGING ***
+
             await websocket.send_text(json.dumps({"type": "info", "message": "Using manual activity detection (start/stop buttons)."}))
 
             # Task to send audio to Gemini
             async def send_audio_to_gemini():
-                logger.info(f"[{client_id}] send_audio_to_gemini task started.") # ADDED LOG
+                # ... (send_audio_to_gemini remains the same) ...
+                logger.info(f"[{client_id}] send_audio_to_gemini task started.")
                 while True:
                     try:
-                        logger.debug(f"[{client_id}] Waiting for audio chunk from queue...") # ADDED LOG
+                        logger.debug(f"[{client_id}] Waiting for audio chunk from queue...")
                         input_chunk = await audio_queue.get()
                         if input_chunk is None:
-                            logger.info(f"[{client_id}] Received None signal, exiting send_audio_to_gemini.") # ADDED LOG
+                            logger.info(f"[{client_id}] Received None signal, exiting send_audio_to_gemini.")
                             break
-                        logger.info(f"[{client_id}] Got audio chunk ({len(input_chunk)} bytes) from queue.") # ADDED LOG
+                        logger.info(f"[{client_id}] Got audio chunk ({len(input_chunk)} bytes) from queue.")
 
                         transcoded_chunk = None
                         if ffmpeg:
                             transcoded_chunk = await transcode_audio_ffmpeg(input_chunk)
                         else:
                              logger.error(f"[{client_id}] Cannot process audio: ffmpeg not available.")
-                             audio_queue.task_done() # Mark task done even if skipping
+                             audio_queue.task_done()
                              continue
 
                         if transcoded_chunk:
-                            logger.info(f"[{client_id}] Sending {len(transcoded_chunk)} bytes of PCM audio to Gemini...") # ADDED LOG
+                            logger.info(f"[{client_id}] Sending {len(transcoded_chunk)} bytes of PCM audio to Gemini...")
                             await live_session.send(LiveClientMessage(
                                 realtime_input=LiveClientRealtimeInput(
                                     media_chunks=[Blob(data=transcoded_chunk, mime_type="audio/pcm")]
                                 )
                             ))
-                            logger.info(f"[{client_id}] Successfully sent audio chunk to Gemini.") # ADDED LOG
+                            logger.info(f"[{client_id}] Successfully sent audio chunk to Gemini.")
                         else:
                             logger.warning(f"[{client_id}] Transcoding failed, audio chunk skipped.")
 
@@ -534,29 +517,27 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                         break
                     except Exception as e:
                         logger.error(f"[{client_id}] Error in send_audio_to_gemini loop: {e}", exc_info=True)
-                        # Optionally break or attempt to continue depending on error type
-                        break # Stop sending on error for safety
+                        break
+
 
             # Task to receive responses from Gemini
             async def receive_from_gemini():
-                logger.info(f"[{client_id}] receive_from_gemini task started.") # ADDED LOG
+                logger.info(f"[{client_id}] receive_from_gemini task started.")
                 final_transcript_buffer = ""
                 try:
-                    logger.info(f"[{client_id}] Starting 'async for' loop over live_session...") # ADDED LOG (Using direct iteration based on previous fix)
-                    async for response in live_session: # Using direct iteration based on last successful connection
-                        logger.info(f"[{client_id}] Received message structure from Gemini: {type(response)}") # ADDED LOG
-                        # Log the raw response structure for debugging if needed (can be verbose)
+                    # *** TRYING live_session.receive() again - based on examples ***
+                    logger.info(f"[{client_id}] Attempting 'async for' loop over live_session.receive()...")
+                    async for response in live_session.receive(): # Reverted based on examples
+                        logger.info(f"[{client_id}] Received message structure from Gemini: {type(response)}")
                         # logger.debug(f"[{client_id}] Raw Gemini response: {response}")
 
+                        # ... (Rest of response processing logic is the same as previous) ...
                         if not response:
                             logger.warning(f"[{client_id}] Received empty response object from Gemini.")
                             continue
-
                         response_dict = {}
                         try:
-                            # --- Process response ---
-                            # (This logic remains the same as the previous version)
-                            # ...
+                            # Build response dict based on message type
                             if response.server_content:
                                 content_dict = {}
                                 if response.server_content.input_transcription:
@@ -574,7 +555,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                         final_transcript_buffer = ""
 
                                 if response.server_content.model_turn:
-                                    # ... (model_turn parsing same as before) ...
                                     parts_list = []
                                     for part in response.server_content.model_turn.parts:
                                         part_dict = {}
@@ -588,7 +568,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                 if content_dict: response_dict["server_content"] = content_dict
 
                             elif response.tool_call:
-                                # ... (tool_call parsing same as before) ...
                                 response_dict["tool_call"] = {"function_calls": [{"name": fc.name, "args": fc.args, "id": fc.id} for fc in response.tool_call.function_calls]}
                             elif response.setup_complete:
                                 response_dict["setup_complete"] = {}
@@ -608,26 +587,23 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                 continue
 
                             if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                                # ... (usage_metadata parsing same as before) ...
                                 response_dict["usage_metadata"] = {
                                      "prompt_token_count": response.usage_metadata.prompt_token_count,
                                      "total_token_count": response.usage_metadata.total_token_count
                                  }
 
-
                             if response_dict:
-                                logger.info(f"[{client_id}] Sending processed response to client: {json.dumps(response_dict)}") # ADDED LOG
+                                logger.info(f"[{client_id}] Sending processed response to client: {json.dumps(response_dict)}")
                                 await websocket.send_text(json.dumps(response_dict))
-                            # --- End Processing Response ---
 
                         except Exception as processing_err:
                              logger.error(f"[{client_id}] Error processing/serializing server message: {processing_err}", exc_info=True)
 
-
-                except TypeError as te:
-                     logger.error(f"[{client_id}] TypeError in receive_from_gemini loop (likely async for issue on live_session): {te}", exc_info=True)
-                     try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Error: Failed iterating responses ({te})."}))
-                     except Exception: pass
+                # *** ADDED SPECIFIC HANDLING FOR ATTRIBUTE ERROR ***
+                except AttributeError as ae:
+                     logger.error(f"[{client_id}] AttributeError in receive_from_gemini loop (likely 'receive' missing): {ae}", exc_info=True)
+                     try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Error: Failed iterating responses ({ae}). Check SDK version/API compatibility."}))
+                     except Exception: pass # Ignore send errors during error handling
                 except asyncio.CancelledError:
                     logger.info(f"[{client_id}] receive_from_gemini task cancelled.")
                 except Exception as e:
@@ -640,23 +616,30 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
 
             # Start background tasks
-            logger.info(f"[{client_id}] Starting background tasks...") # ADDED LOG
+            logger.info(f"[{client_id}] Starting background tasks...")
             send_task = asyncio.create_task(send_audio_to_gemini())
             receive_task = asyncio.create_task(receive_from_gemini())
 
             # Main loop to receive data/signals from client WebSocket
-            logger.info(f"[{client_id}] Entering main WS receive loop...") # ADDED LOG
+            logger.info(f"[{client_id}] Entering main WS receive loop...")
             while True:
                 data = await websocket.receive()
-                # ADDED LOGGING FOR RECEIVED MESSAGE TYPE
-                logger.info(f"[{client_id}] Received message from client, type: {data.get('type')}")
+                # *** CORRECTED LOGGING FOR RECEIVED MESSAGE TYPE ***
+                log_msg_type = data.get('type')
+                if log_msg_type == 'websocket.receive':
+                    # This inner message type tells us if it's bytes or text
+                    inner_data = data.get('bytes') or data.get('text')
+                    log_msg_type = 'bytes' if inner_data and isinstance(inner_data, bytes) else 'text' if inner_data else 'unknown'
+                logger.info(f"[{client_id}] Received message from client, type: {log_msg_type}")
+
 
                 if data['type'] == 'websocket.disconnect':
                     logger.info(f"[{client_id}] WebSocket disconnect message received.")
                     break
 
                 if data['type'] == 'bytes':
-                    logger.info(f"[{client_id}] Received {len(data['bytes'])} bytes from client. Putting in queue.") # ADDED LOG
+                    # ADDED Log
+                    logger.info(f"[{client_id}] Received {len(data['bytes'])} bytes from client. Putting in queue.")
                     await audio_queue.put(data['bytes'])
                 elif data['type'] == 'text':
                     # (Text handling logic remains the same)
@@ -722,7 +705,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                  await websocket.close()
                  logger.info(f"Closed WebSocket for {client_id} from server side.")
         except Exception as e: logger.error(f"Error closing WS for {client_id}: {e}")
-
 
 
 # --- Uvicorn Runner ---
