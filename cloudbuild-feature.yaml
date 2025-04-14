@@ -12,6 +12,7 @@ steps:
       - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${SHORT_SHA}'
       - '--context=dir://.'
       - '--dockerfile=Dockerfile'
+      - '--cache=false'
 
   # --- Step 3a: Deploy Streamlit Service ---
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
