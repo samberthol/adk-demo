@@ -1,3 +1,4 @@
+# README.md
 # GCP Multi-Agent Demo (using Google ADK)
 
 This project demonstrates a multi-agent system built with the Google Agent Development Kit (ADK), deployed automatically via Cloud Build triggers. It uses a `MetaAgent` to coordinate tasks between specialized agents that interact with Google Cloud services and GitHub.
@@ -15,35 +16,35 @@ The system features:
 * **MCP Server**: A separate service acting as a proxy for GitHub tools.
 * **Automated Deployment**: Uses [Google Cloud Build](https://cloud.google.com/build/docs) triggers connected to GitHub for automated builds and deployments to [Google Cloud Run](https://cloud.google.com/run). Container images are stored in [Google Artifact Registry](https://cloud.google.com/artifact-registry/docs).
 
-**Project Diagram** : Workflow of the different component (Update if necessary)
+**Project Diagram**
 
 <p align="center">
 <img src="./assets/td-flow-chart.png" alt="Diagram" width="600"/>
 </p>
 
-## Project Structure (Adjust if needed after cleanup)
+## Project Structure
 
     adk-demo/
-    ├── agents/                 # Agent definitions and tools
+    ├── agents/
     │   ├── datascience/
     │   ├── githubagent/
     │   ├── meta/
     │   └── resource/
     ├── assets/
-    │   └── td-flow-chart.png   # Diagram
-    ├── ui/                     # UI applications
-    │   ├── app.py              # Streamlit UI
-    │   └── api.py              # FastAPI UI
-    ├── main.py                 # Main entry point / Root agent definition
-    ├── requirements.txt        # Python dependencies
-    ├── Dockerfile              # Dockerfile for Python App (Streamlit/FastAPI)
-    ├── Dockerfile.mcp          # Dockerfile for MCP Go server (Ensure this exists)
-    ├── cloudbuild.yaml         # Cloud Build configuration (Multi-service)
-    ├── setup_trigger.sh        # Script to create/update the Cloud Build GitHub trigger
-    ├── .env.example            # Example environment variables file
-    ├── .gitignore              # Files ignored by Git
-    ├── LICENSE                 # Project license
-    └── README.md               # This file
+    │   └── td-flow-chart.png
+    ├── ui/
+    │   ├── app.py
+    │   └── api.py
+    ├── main.py
+    ├── requirements.txt
+    ├── Dockerfile
+    ├── Dockerfile.mcp
+    ├── cloudbuild.yaml
+    ├── setup_trigger.sh
+    ├── .env.example
+    ├── .gitignore
+    ├── LICENSE
+    └── README.md
 
 ## Prerequisites
 
@@ -89,7 +90,7 @@ This project uses Cloud Build triggers for automated deployment upon pushes to t
         * Configure the trigger to use `cloudbuild.yaml` and inject substitutions from your `.env` file. Follow the script prompts carefully.
 
 5.  **Trigger Deployment:**
-    * Ensure your `feature/live-voice-connect` branch is merged into `main`.
+    * Ensure your desired branch (e.g., `feature/live-voice-connect`) is merged into `main`.
     * Push changes to the `main` branch of your GitHub repository (`samberthol/adk-demo`).
     * This push will automatically trigger the Cloud Build process defined in `cloudbuild.yaml`.
     * Monitor the build progress in the Google Cloud Console under Cloud Build -> History.
@@ -97,9 +98,9 @@ This project uses Cloud Build triggers for automated deployment upon pushes to t
 
 ## Configuration Notes
 
-* **Secrets Management:** As mentioned, using Google Secret Manager for API keys and tokens is highly recommended over `.env` substitutions for better security.
+* **Secrets Management:** Using Google Secret Manager for API keys and tokens is highly recommended over `.env` substitutions for better security.
 * **Project Hash:** The `_PROJECT_HASH` substitution in `cloudbuild.yaml` (and corresponding `PROJECT_HASH` in `.env`) is required to construct the correct Cloud Run service URLs. You can find this hash as part of the URL of any existing Cloud Run service in your project.
-* **Session Persistence:** The Streamlit and FastAPI UIs use `InMemorySessionService` by default. Chat/interaction history will be lost if the Cloud Run instances restart. For persistent sessions, explore other ADK session services.
+* **Session Persistence:** The Streamlit and FastAPI UIs use `InMemorySessionService` by default. Interaction history will be lost if the Cloud Run instances restart. For persistent sessions, explore other ADK session services.
 
 ## Contributing
 

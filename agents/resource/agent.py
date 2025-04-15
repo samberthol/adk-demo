@@ -1,23 +1,21 @@
 # agents/resource/agent.py
-import os # Added import
+import os
 from google.adk.agents import LlmAgent
-# Import the functions directly, including the new start, stop, get functions
 from .tools import (
     create_vm_instance_func,
     delete_vm_instance_func,
     list_vm_instances_func,
     start_vm_instance_func,
     stop_vm_instance_func,
-    get_vm_instance_details_func 
+    get_vm_instance_details_func
 )
 
-# Read model name from environment variable, with a fallback
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 resource_agent = LlmAgent(
     name="ResourceAgent",
-    model=agent_model, # Use the variable
-    description="An agent responsible for creating, deleting, listing, starting, stopping, and getting details of Google Compute Engine VM instances.", # Expanded description
+    model=agent_model,
+    description="An agent responsible for creating, deleting, listing, starting, stopping, and getting details of Google Compute Engine VM instances.",
     instruction=(
         "You are a specialized agent that executes commands to manage Compute Engine VM resources using available tools.\n\n"
         "**VM Creation (`create_vm_instance_func`):**\n"
@@ -33,15 +31,15 @@ resource_agent = LlmAgent(
         "- Lists existing VM instances.\n"
         "- Uses default `project_id` and `zone` unless overridden.\n"
         "- Can optionally accept a `filter_expression` argument (e.g., 'name=instance-via-adk*') to filter results.\n\n"
-        "**VM Start (`start_vm_instance_func`):**\n" # <-- New section
+        "**VM Start (`start_vm_instance_func`):**\n"
         "- Starts a stopped VM instance.\n"
         "- Requires the `instance_name` argument.\n"
         "- Uses default `project_id` and `zone` unless overridden.\n\n"
-        "**VM Stop (`stop_vm_instance_func`):**\n" # <-- New section
+        "**VM Stop (`stop_vm_instance_func`):**\n"
         "- Stops a running VM instance.\n"
         "- Requires the `instance_name` argument.\n"
         "- Uses default `project_id` and `zone` unless overridden.\n\n"
-        "**VM Get Details (`get_vm_instance_details_func`):**\n" # <-- New section
+        "**VM Get Details (`get_vm_instance_details_func`):**\n"
         "- Gets detailed information about a specific VM instance.\n"
         "- Requires the `instance_name` argument.\n"
         "- Uses default `project_id` and `zone` unless overridden.\n\n"
@@ -51,13 +49,12 @@ resource_agent = LlmAgent(
         "- Provide clear success or error messages back based on the tool's output.\n"
         "- Summarize the results from the list and get details tools clearly."
     ),
-    # Add the new functions to the tools list
     tools=[
         create_vm_instance_func,
         delete_vm_instance_func,
         list_vm_instances_func,
-        start_vm_instance_func,  # Added
-        stop_vm_instance_func,   # Added
-        get_vm_instance_details_func # Added
+        start_vm_instance_func,
+        stop_vm_instance_func,
+        get_vm_instance_details_func
         ],
 )

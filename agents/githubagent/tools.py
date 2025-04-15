@@ -8,11 +8,9 @@ from typing import Optional
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") # May be needed by MCP server or direct calls
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
-# --- Helper Function to Call MCP Server (via mcpo REST API) ---
 def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
     """
     Helper function to invoke a specific tool on the MCP server wrapped by mcpo.
@@ -26,31 +24,26 @@ def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
 
     headers = {
         "Content-Type": "application/json",
-        # Add API Key header if mcpo was started with --api-key
-        # "Authorization": f"Bearer {YOUR_MCPO_API_KEY}"
     }
     payload = inputs
 
     logger.info(f"Attempting to invoke MCP tool via mcpo:")
     logger.info(f"  URL: POST {tool_invoke_url}")
     logger.info(f"  Headers: {headers}")
-    logger.info(f"  Payload: {json.dumps(payload)}") # Log the payload as JSON string
+    logger.info(f"  Payload: {json.dumps(payload)}")
 
     try:
         response = requests.post(tool_invoke_url, headers=headers, json=payload, timeout=60)
 
-        # --- Enhanced Logging ---
         logger.info(f"Received response from mcpo:")
         logger.info(f"  Status Code: {response.status_code}")
-        # Log first 500 chars of response text for brevity, handle potential decoding errors
         try:
             response_text_preview = response.text[:500]
             logger.info(f"  Response Text Preview: {response_text_preview}{'...' if len(response.text) > 500 else ''}")
         except Exception as log_e:
              logger.warning(f"Could not log response text preview: {log_e}")
-        # --- End Enhanced Logging ---
 
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+        response.raise_for_status()
 
         response_data = response.json()
         if isinstance(response_data, dict):
@@ -61,7 +54,6 @@ def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
              return str(response_data)
 
     except requests.exceptions.RequestException as e:
-        # Log details even before returning the error string
         logger.error(f"HTTP Request Error calling mcpo wrapper for tool '{tool_name}': {e}", exc_info=True)
         error_status = "N/A"
         error_text = str(e)
@@ -70,33 +62,16 @@ def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
              try:
                   error_text = e.response.text
              except Exception:
-                  pass # Keep original error string if text cannot be read
+                  pass
              logger.error(f"  Error Status Code: {error_status}")
              logger.error(f"  Error Response Text: {error_text}")
-        # --- Make error message more informative ---
         return f"Error communicating with the MCP server: Status {error_status} - Response: {error_text}"
-        # --- Old error message handling ---
-        # error_details = str(e)
-        # if e.response is not None:
-        #      try:
-        #           error_details = f"Status {e.response.status_code}: {e.response.text}"
-        #      except Exception:
-        #           pass
-        # if e.response is not None and e.response.status_code == 404:
-        #      return f"Error: The tool endpoint '{tool_invoke_url}' was not found on the MCP server. Check if the tool name '{tool_name}' is correct and exposed by the server."
-        # return f"Error communicating with the MCP server via mcpo: {error_details}"
     except json.JSONDecodeError:
-        # Log the response text that failed to parse
         logger.error(f"Failed to decode JSON response from mcpo for tool '{tool_name}'. Status: {response.status_code}. Response Text: {response.text}")
         return f"Error: Received invalid JSON response from mcpo wrapper (Status: {response.status_code}). Check agent logs for response text."
     except Exception as e:
         logger.error(f"Unexpected error invoking mcpo-wrapped MCP tool '{tool_name}': {e}", exc_info=True)
         return f"An unexpected error occurred while calling the MCP tool via mcpo: {str(e)}"
-
-
-# --- GitHub Agent Tools (using MCP via mcpo) ---
-# Functions search_github_repositories_func and get_github_repo_file_func remain the same as before
-# ... (keep the existing function definitions for search_github_repositories_func and get_github_repo_file_func) ...
 
 def search_github_repositories_func(query: str = "") -> str:
     """
@@ -112,7 +87,7 @@ def search_github_repositories_func(query: str = "") -> str:
 def get_github_repo_file_func(owner: str = "", repo: str = "", path: str = "") -> str:
     """
     Gets the content of a file from a GitHub repository using the 'get_file_contents' tool via the MCP server (mcpo wrapper).
-    
+
     Requires repository owner, repository name, and the file path (e.g., 'README.md').
     """
     if not owner: return "Get file failed: Repository owner is required."

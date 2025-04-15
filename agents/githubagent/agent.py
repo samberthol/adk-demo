@@ -3,11 +3,10 @@ import os
 from google.adk.agents import LlmAgent
 from .tools import search_github_repositories_func, get_github_repo_file_func
 
-# Read model name from environment variable, with a fallback
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 githubagent = LlmAgent(
-    name="githubagent", # Lowercase as requested
+    name="githubagent",
     model=agent_model,
     description="An agent specialized in interacting with GitHub repositories using tools that communicate with a GitHub MCP server.",
     instruction=(

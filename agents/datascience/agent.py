@@ -1,15 +1,14 @@
 # agents/datascience/agent.py
-import os # Added import
+import os
 from google.adk.agents import LlmAgent
-from .tools import run_bigquery_query_func, create_bq_dataset_func 
+from .tools import run_bigquery_query_func, create_bq_dataset_func
 
-# Read model name from environment variable, with a fallback
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 data_science_agent = LlmAgent(
     name="DataScienceAgent",
-    model=agent_model, # Use the variable
-    description="An agent specialized in querying data from Google BigQuery using SQL and creating BigQuery datasets.", # Added creating datasets
+    model=agent_model,
+    description="An agent specialized in querying data from Google BigQuery using SQL and creating BigQuery datasets.",
     instruction=(
         "You are a data analyst agent responsible for interacting with Google BigQuery.\n"
         "You have two tools available:\n"
@@ -20,7 +19,6 @@ data_science_agent = LlmAgent(
         "- If the user wants to **create a dataset**, call `create_bq_dataset_func`. Make sure you have the project ID and the desired dataset name.\n"
         "- Provide the results or status from the tool calls clearly back to the user."
     ),
-    # Add the create function to the tools list
     tools=[
         run_bigquery_query_func,
         create_bq_dataset_func

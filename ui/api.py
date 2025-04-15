@@ -7,7 +7,7 @@ import time
 import uuid
 import json
 from pathlib import Path
-import io # For handling byte streams
+import io
 
 # --- FastAPI / Starlette Imports ---
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -16,21 +16,18 @@ from fastapi.responses import HTMLResponse
 
 # --- Google AI / ADK Imports ---
 from google import genai
-from google.genai import types # Keep top-level types import
+from google.genai import types
 
-# Import specific types needed for Live API (v1alpha)
 try:
     from google.genai.types import (
         Content, Part, HttpOptions, LiveConnectConfig,
-        AudioTranscriptionConfig, # Added for input config
+        AudioTranscriptionConfig,
         LiveClientMessage, ActivityStart, ActivityEnd,
         Blob, LiveClientRealtimeInput, LiveServerMessage, Transcription, UsageMetadata
-        # Removed SpeechConfig, VoiceConfig etc. as only TEXT output requested
     )
-    # *** MODIFIED: Request TEXT only, but add input_audio_transcription config ***
     GEMINI_LIVE_CONFIG = LiveConnectConfig(
-        response_modalities=["TEXT"], # Request TEXT modality only
-        input_audio_transcription=AudioTranscriptionConfig() # Add config for INPUT audio
+        response_modalities=["TEXT"],
+        input_audio_transcription=AudioTranscriptionConfig()
     )
     live_types_imported = True
 except ImportError as e:
@@ -45,7 +42,6 @@ except Exception as e:
     logger_init.error(f"Error defining GEMINI_LIVE_CONFIG: {e}")
     live_types_imported = False
     GEMINI_LIVE_CONFIG = None
-
 
 # --- ADK Agent Imports ---
 try:
@@ -69,28 +65,26 @@ except ImportError:
 
 # --- Basic Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("fastapi_app") # Main logger for the app
+logger = logging.getLogger("fastapi_app")
 
 APP_NAME = "gcp_multi_agent_demo_api"
 USER_ID_PREFIX = "fastapi_user_"
 ADK_SESSION_PREFIX = f'adk_session_{APP_NAME}_'
-GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001" # Use the requested live model
+GEMINI_LIVE_MODEL_NAME = "models/gemini-2.0-flash-live-001"
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-STREAMING_INTERIM_RESULTS = True # For text transcripts
+STREAMING_INTERIM_RESULTS = True
 
-# Audio constants (Keep these for transcoding)
 TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
-TARGET_FORMAT = 's16le' # Raw PCM signed 16-bit little-endian
+TARGET_FORMAT = 's16le'
 
 # --- ADK Initialization ---
 session_service = InMemorySessionService()
 adk_runner = Runner(agent=meta_agent, app_name=APP_NAME, session_service=session_service)
 active_adk_sessions = {}
 
-# --- Google Generative AI Configuration (Using v1alpha for the live model) ---
-client = None # Initialize client variable globally
-# ... (client initialization remains the same, using v1alpha) ...
+# --- Google Generative AI Configuration ---
+client = None
 if not GOOGLE_API_KEY:
     logger.error("GOOGLE_API_KEY environment variable not set.")
 elif not live_types_imported or HttpOptions is None:
@@ -99,27 +93,24 @@ else:
     try:
         client = genai.Client(
             api_key=GOOGLE_API_KEY,
-            http_options=HttpOptions(api_version='v1alpha') # Keep v1alpha
+            http_options=HttpOptions(api_version='v1alpha')
         )
         logger.info("Google Generative AI client configured targeting v1alpha API.")
     except Exception as e:
          logger.error(f"Failed to configure Google Generative AI client (targeting v1alpha): {e}")
 
-
 # --- ADK Interaction Functions ---
-# (get_or_create_adk_session_sync remains the same)
 def get_or_create_adk_session_sync(user_id: str) -> str:
-    # ... (code remains the same) ...
     if user_id in active_adk_sessions:
         session_id = active_adk_sessions[user_id]
-        try: # Check/Recreate logic
+        try:
             existing = session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
             if not existing:
                 logger.warning(f"ADK session {session_id} not found. Recreating.")
                 session_service.create_session(app_name=APP_NAME, user_id=user_id, session_id=session_id, state={})
         except Exception as e: logger.error(f"Error checking/recreating session {session_id}: {e}"); raise
         return session_id
-    else: # Create new
+    else:
         session_id = f"{ADK_SESSION_PREFIX}{int(time.time())}_{os.urandom(4).hex()}"
         active_adk_sessions[user_id] = session_id
         try: session_service.create_session(app_name=APP_NAME, user_id=user_id, session_id=session_id, state={})
@@ -127,12 +118,10 @@ def get_or_create_adk_session_sync(user_id: str) -> str:
            logger.exception(f"--- FastAPI ADK Sync: FATAL ERROR creating session {session_id} for {user_id}:")
            if user_id in active_adk_sessions:
                del active_adk_sessions[user_id]
-           raise # Re-raise the exception
+           raise
         return session_id
 
-# (run_adk_turn_sync remains the same)
 def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> str:
-    # ... (code remains the same) ...
     logger.info(f"ADK Run: Session {session_id}, Query: '{user_message_text[:100]}...'")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
@@ -146,12 +135,10 @@ def run_adk_turn_sync(user_id: str, session_id: str, user_message_text: str) -> 
     except Exception as e: logger.exception(f"ADK Run EXCEPTION for session {session_id}:"); final_response_text = f"Error: {e}"
     return final_response_text
 
-
 # --- FastAPI App ---
 app = FastAPI()
 
 # --- Frontend HTML/JS ---
-# (HTML remains the same as previous version with agent response box and improved error handling)
 html = """
 <!DOCTYPE html>
 <html>
@@ -175,8 +162,6 @@ html = """
         <div id="agent-response-box"><strong>Agent:</strong> Waiting for interaction...</div>
 
         <script>
-            // (JavaScript remains the same as previous version)
-            // ...
             const statusSpan = document.getElementById('status');
             const interactionDiv = document.getElementById('interaction');
             const agentResponseDiv = document.getElementById('agent-response-box');
@@ -309,16 +294,14 @@ html = """
                     websocket.onmessage = function(evt) {
                         if (evt.data instanceof ArrayBuffer) {
                             console.log(`Received audio chunk: ${evt.data.byteLength} bytes`);
-                            playAudioChunk(evt.data); // Play received TTS audio
+                            playAudioChunk(evt.data);
                         } else if (typeof evt.data === 'string') {
                             try {
                                 const msg = JSON.parse(evt.data);
 
-                                // --- Improved Message Handling ---
-                                if (msg.type === 'error') { // Check for type: 'error' first
+                                if (msg.type === 'error') {
                                     logInteraction(`Server Error: ${msg.message || JSON.stringify(msg)}`, 'system');
                                 } else if (msg.server_content) {
-                                    // ... (handle server_content as before) ...
                                      const content = msg.server_content;
                                     if (content.input_transcription) {
                                         const transcript = content.input_transcription;
@@ -360,7 +343,6 @@ html = """
                                     logInteraction(`Unknown server message structure received.`, 'system');
                                     console.log("Unknown server message:", msg);
                                 }
-                                // --- End Improved Message Handling ---
 
                             } catch (e) {
                                 logInteraction(`Received non-JSON/unparsed text message: ${evt.data}`, 'system');
@@ -371,7 +353,6 @@ html = """
                         }
                     };
                 } catch (err) {
-                    // ... (connectWebSocket catch remains the same) ...
                      statusSpan.textContent = "Error";
                        logInteraction(`Error creating WebSocket: ${err}`, 'system');
                        console.error("Error creating WebSocket:", err);
@@ -380,7 +361,6 @@ html = """
             }
 
             startButton.onclick = async () => {
-                 // ... (startButton.onclick remains the same) ...
                  if (!audioContext) { if (!initAudioContext()) return; }
                 if (audioContext.state === 'suspended') { await audioContext.resume(); }
 
@@ -421,13 +401,11 @@ html = """
             };
 
             stopButton.onclick = () => {
-                 // ... (stopButton.onclick remains the same) ...
                  if (mediaRecorder && mediaRecorder.state === 'recording') {
                     mediaRecorder.stop();
                 }
             };
 
-            // Initial connection attempt when page loads
             connectWebSocket();
         </script>
     </body>
@@ -439,24 +417,22 @@ async def get_test_page():
     """Serves the simple HTML page with WebSocket audio handling."""
     return HTMLResponse(html)
 
-# --- Helper function for transcoding ---
 async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
-    # ... (transcode_audio_ffmpeg remains the same, including logging) ...
     """Transcodes audio bytes using ffmpeg-python to PCM S16LE @ 16kHz."""
     if not ffmpeg: logger.error("ffmpeg-python library not available."); return None
     try:
-        logger.info(f"[{uuid.uuid4()}] Starting transcoding for {len(input_bytes)} bytes...") # Keep Log
+        logger.info(f"[{uuid.uuid4()}] Starting transcoding for {len(input_bytes)} bytes...")
         process = (
             ffmpeg
             .input('pipe:0')
             .output('pipe:1', format=TARGET_FORMAT, acodec='pcm_s16le', ac=TARGET_CHANNELS, ar=TARGET_SAMPLE_RATE)
-            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=False) # Keep quiet=False for ffmpeg logs
+            .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True, quiet=False)
         )
         stdout, stderr = await asyncio.to_thread(process.communicate, input=input_bytes)
         if process.returncode != 0:
-            logger.error(f"[{uuid.uuid4()}] FFmpeg failed: {process.returncode}\nStderr: {stderr.decode()}") # Keep Log
+            logger.error(f"[{uuid.uuid4()}] FFmpeg failed: {process.returncode}\nStderr: {stderr.decode()}")
             return None
-        logger.info(f"[{uuid.uuid4()}] Transcoding successful. Output size: {len(stdout)} bytes.") # Keep Log
+        logger.info(f"[{uuid.uuid4()}] Transcoding successful. Output size: {len(stdout)} bytes.")
         return stdout
     except ffmpeg.Error as e:
         logger.error(f"[{uuid.uuid4()}] ffmpeg-python error: {e}\n{getattr(e, 'stderr', b'').decode()}", exc_info=True)
@@ -465,11 +441,9 @@ async def transcode_audio_ffmpeg(input_bytes: bytes) -> bytes | None:
         logger.error(f"[{uuid.uuid4()}] Unexpected transcoding error: {e}", exc_info=True)
         return None
 
-
 # --- WebSocket Endpoint ---
 @app.websocket("/ws/audio_gemini")
 async def websocket_endpoint_gemini(websocket: WebSocket):
-    # ... (websocket_endpoint_gemini remains the same as previous, with TEXT only config + input_audio_transcription) ...
     await websocket.accept()
     client_id = f"{USER_ID_PREFIX}{uuid.uuid4()}"
     logger.info(f"WebSocket connection accepted: {client_id}")
@@ -486,11 +460,11 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
         adk_session_id = get_or_create_adk_session_sync(client_id)
         await websocket.send_text(json.dumps({"type": "info", "message": f"ADK Session Ready: {adk_session_id}"}))
 
-        logger.info(f"[{client_id}] Initializing Gemini live session (model: {GEMINI_LIVE_MODEL_NAME}, config: {GEMINI_LIVE_CONFIG}) using configured client (v1alpha)...") # Log config
+        logger.info(f"[{client_id}] Initializing Gemini live session (model: {GEMINI_LIVE_MODEL_NAME}, config: {GEMINI_LIVE_CONFIG}) using configured client (v1alpha)...")
 
         async with client.aio.live.connect(
             model=GEMINI_LIVE_MODEL_NAME,
-            config=GEMINI_LIVE_CONFIG # Use the config with TEXT output + input audio config
+            config=GEMINI_LIVE_CONFIG
         ) as live_session:
             logger.info(f"[{client_id}] Gemini live session established.")
             logger.info(f"[{client_id}] live_session type: {type(live_session)}")
@@ -499,9 +473,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
             await websocket.send_text(json.dumps({"type": "info", "message": "Using manual activity detection (start/stop buttons)."}))
 
-            # Task to send audio to Gemini
             async def send_audio_to_gemini():
-                # ... (code remains the same) ...
                 logger.info(f"[{client_id}] send_audio_to_gemini task started.")
                 while True:
                     try:
@@ -539,14 +511,12 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                         logger.error(f"[{client_id}] Error in send_audio_to_gemini loop: {e}", exc_info=True)
                         break
 
-            # Task to receive responses from Gemini
             async def receive_from_gemini():
-                # ... (code remains the same, using live_session.receive()) ...
                 logger.info(f"[{client_id}] receive_from_gemini task started.")
                 final_transcript_buffer = ""
                 try:
                     logger.info(f"[{client_id}] Attempting 'async for' loop over live_session.receive()...")
-                    async for response in live_session.receive(): # Using .receive() based on examples
+                    async for response in live_session.receive():
                         logger.info(f"[{client_id}] Received message structure from Gemini: {type(response)}")
 
                         if not response:
@@ -554,7 +524,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                             continue
                         response_dict = {}
                         try:
-                            # Build response dict based on message type
                             if response.server_content:
                                 content_dict = {}
                                 if response.server_content.input_transcription:
@@ -578,7 +547,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                                         if hasattr(part, 'text') and part.text: part_dict['text'] = part.text
                                         if hasattr(part, 'inline_data') and part.inline_data and part.inline_data.data:
                                             logger.warning(f"[{client_id}] Received unexpected audio data when only TEXT was requested.")
-                                            # await websocket.send_bytes(part.inline_data.data) # Ignoring unexpected audio
                                         if part_dict: parts_list.append(part_dict)
                                     if parts_list: content_dict["model_turn"] = {"parts": parts_list}
 
@@ -616,7 +584,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                         except Exception as processing_err:
                              logger.error(f"[{client_id}] Error processing/serializing server message: {processing_err}", exc_info=True)
 
-
                 except AttributeError as ae:
                      logger.error(f"[{client_id}] AttributeError in receive_from_gemini loop (likely 'receive' missing): {ae}", exc_info=True)
                      try: await websocket.send_text(json.dumps({"type": "error", "message": f"Server Error: Failed iterating responses ({ae}). Check SDK version/API compatibility."}))
@@ -631,8 +598,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                 finally:
                     logger.info(f"[{client_id}] receive_from_gemini task finished.")
 
-
-            # ... (Starting tasks and main WS receive loop remain the same) ...
             logger.info(f"[{client_id}] Starting background tasks...")
             send_task = asyncio.create_task(send_audio_to_gemini())
             receive_task = asyncio.create_task(receive_from_gemini())
@@ -645,7 +610,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                     inner_data = data.get('bytes') or data.get('text')
                     log_msg_type = 'bytes' if inner_data and isinstance(inner_data, bytes) else 'text' if inner_data else 'unknown'
                 logger.info(f"[{client_id}] Received message from client, type: {log_msg_type}")
-
 
                 if data['type'] == 'websocket.disconnect':
                     logger.info(f"[{client_id}] WebSocket disconnect message received.")
@@ -676,10 +640,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
 
             logger.info(f"[{client_id}] Exited main WS receive loop.")
 
-
-    # --- Exception Handling & Cleanup ---
-    # (Cleanup remains the same)
-    # ...
     except WebSocketDisconnect: logger.info(f"WS client {client_id} disconnected.")
     except ImportError as e:
         logger.error(f"[{client_id}] Startup failed due to ImportError: {e}")
@@ -700,8 +660,6 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                  await websocket.send_text(json.dumps({"type": "error", "message": f"Server connection/handler error: {str(e)}"}))
         except Exception: pass
     finally:
-        # (Cleanup remains the same)
-        # ...
         logger.info(f"Closing WS connection & cleaning up for {client_id}.")
         if send_task and not send_task.done(): send_task.cancel()
         if receive_task and not receive_task.done(): receive_task.cancel()
@@ -719,10 +677,7 @@ async def websocket_endpoint_gemini(websocket: WebSocket):
                  logger.info(f"Closed WebSocket for {client_id} from server side.")
         except Exception as e: logger.error(f"Error closing WS for {client_id}: {e}")
 
-
 # --- Uvicorn Runner ---
-# (Runner remains the same)
-# ...
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting FastAPI server directly with Uvicorn...")

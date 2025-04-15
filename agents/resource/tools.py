@@ -10,7 +10,6 @@ from google.api_core.exceptions import NotFound, Conflict
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Helper: Wait for Zone Operation ---
 def _wait_for_zone_operation(project_id: str, zone: str, operation_id: str):
     """Waits for a zone operation to complete and returns the result."""
     logger.info(f"Waiting for zone operation {operation_id} in {zone} to complete...")
@@ -20,7 +19,6 @@ def _wait_for_zone_operation(project_id: str, zone: str, operation_id: str):
             result = zone_operations_client.get(project=project_id, zone=zone, operation=operation_id)
             if result.status == google.cloud.compute_v1.Operation.Status.DONE:
                 logger.info(f"Zone operation {operation_id} finished with status DONE.")
-                # Check for errors within the completed operation
                 if result.error:
                     error_message = _format_operation_error(result)
                     logger.error(f"Zone operation {operation_id} completed with error: {error_message}")
@@ -28,29 +26,22 @@ def _wait_for_zone_operation(project_id: str, zone: str, operation_id: str):
             time.sleep(5) # Wait before polling again
         except Exception as e:
             logger.error(f"Error waiting for zone operation {operation_id}: {e}", exc_info=True)
-            # Depending on the error, you might want to retry or raise
-            raise # Re-raise the exception for now
+            raise
 
-# --- Helper: Format Operation Error ---
 def _format_operation_error(operation_result) -> str:
     """Formats error details from a completed operation object."""
     error_message = "Unknown error during operation."
-    # Check if the error attribute and its errors list exist and are populated
     if hasattr(operation_result, 'error') and operation_result.error and hasattr(operation_result.error, 'errors') and operation_result.error.errors:
         try:
-            # Format each error detail
             error_details = [f"Code: {getattr(err, 'code', 'N/A')}, Message: {getattr(err, 'message', 'N/A')}" for err in operation_result.error.errors]
             error_message = "; ".join(error_details)
-        except Exception as e: # Catch potential issues during formatting
+        except Exception as e:
             logger.error(f"Failed to format operation error details: {e}")
-            error_message = str(operation_result.error) # Fallback to string representation
+            error_message = str(operation_result.error)
     elif hasattr(operation_result, 'error') and operation_result.error:
-        # Handle cases where error exists but errors list might be missing/empty
          error_message = str(operation_result.error)
     return error_message
 
-
-# --- Compute Engine Tool (Create VM) ---
 def create_vm_instance_func(
     project_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -67,7 +58,6 @@ def create_vm_instance_func(
 ) -> str:
     """Creates a Google Compute Engine VM instance, reading defaults from environment variables."""
 
-    # Fetch values from environment or use fallbacks
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
     instance_name = instance_name or os.environ.get('VM_DEFAULT_INSTANCE_NAME', 'instance-via-adk')
@@ -125,7 +115,6 @@ def create_vm_instance_func(
         elif hasattr(e, 'errors'): error_detail = str(e.errors)
         return f"Failed to create VM instance {instance_name}: {error_detail}"
 
-# --- Compute Engine Tool (Delete VM) ---
 def delete_vm_instance_func(
     project_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -162,7 +151,6 @@ def delete_vm_instance_func(
         elif hasattr(e, 'errors'): error_detail = str(e.errors)
         return f"Failed to delete VM instance '{instance_name}': {error_detail}"
 
-# --- Compute Engine Tool (List VMs) ---
 def list_vm_instances_func(
     project_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -187,7 +175,6 @@ def list_vm_instances_func(
             try:
                 ext_ip = "N/A"
                 if instance.network_interfaces and instance.network_interfaces[0].access_configs:
-                     # Safely get nat_ip using getattr
                      ext_ip = getattr(instance.network_interfaces[0].access_configs[0], 'nat_ip', "N/A")
                 details["external_ip"] = ext_ip
             except (IndexError, AttributeError): details["external_ip"] = "N/A"
@@ -208,7 +195,6 @@ def list_vm_instances_func(
         elif hasattr(e, 'errors'): error_detail = str(e.errors)
         return f"Failed to list VM instances in project '{project_id}', zone '{zone}': {error_detail}"
 
-# --- Compute Engine Tool (Start VM) ---
 def start_vm_instance_func(
     project_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -246,7 +232,6 @@ def start_vm_instance_func(
         elif hasattr(e, 'errors'): error_detail = str(e.errors)
         return f"Failed to start VM instance '{instance_name}': {error_detail}"
 
-# --- Compute Engine Tool (Stop VM) ---
 def stop_vm_instance_func(
     project_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -284,7 +269,6 @@ def stop_vm_instance_func(
         elif hasattr(e, 'errors'): error_detail = str(e.errors)
         return f"Failed to stop VM instance '{instance_name}': {error_detail}"
 
-# --- Compute Engine Tool (Get Details) ---
 def get_vm_instance_details_func(
     project_id: Optional[str] = None,
     zone: Optional[str] = None,
@@ -312,63 +296,55 @@ def get_vm_instance_details_func(
             "network_interfaces": [], "disks": []
         }
 
-        # Extract network details safely
         for ni in instance.network_interfaces:
             ni_details = {"name": ni.name, "network": ni.network.split('/')[-1]}
             if ni.subnetwork: ni_details["subnetwork"] = ni.subnetwork.split('/')[-1]
             if ni.network_i_p: ni_details["internal_ip"] = ni.network_i_p
 
-            # Safely extract access config details
             if ni.access_configs:
                 ni_details["access_configs"] = [
                     {
                         "name": getattr(ac, 'name', 'N/A'),
-                        "type": getattr(ac, 'type_', 'N/A'), # Use type_ as type is a reserved keyword
-                        "nat_ip": getattr(ac, 'nat_ip', None), # Safely get nat_ip or None
-                        "network_tier": getattr(ac, 'network_tier', None) # Safely get network_tier or None
+                        "type": getattr(ac, 'type_', 'N/A'),
+                        "nat_ip": getattr(ac, 'nat_ip', None),
+                        "network_tier": getattr(ac, 'network_tier', None)
                     }
                     for ac in ni.access_configs
                 ]
             details["network_interfaces"].append(ni_details)
 
-        # Extract disk details safely
         for disk in instance.disks:
-             # Ensure source is handled correctly if it might be missing or None
              disk_source = disk.source.split('/')[-1] if hasattr(disk, 'source') and disk.source else 'N/A'
              disk_details = {
                  "name": getattr(disk, 'device_name', 'N/A'),
-                 "type": getattr(disk, 'type_', 'N/A'), # Use type_
+                 "type": getattr(disk, 'type_', 'N/A'),
                  "mode": getattr(disk, 'mode', 'N/A'),
-                 "auto_delete": getattr(disk, 'auto_delete', False), # Default to False if missing
-                 "boot": getattr(disk, 'boot', False), # Default to False if missing
+                 "auto_delete": getattr(disk, 'auto_delete', False),
+                 "boot": getattr(disk, 'boot', False),
                  "source": disk_source
              }
              details["disks"].append(disk_details)
 
-        # Format output, safely accessing potentially None values from dict
         output = f"Details for VM '{details.get('name','N/A')}' in project '{project_id}', zone '{details.get('zone','N/A')}':\n"
         output += f"  ID: {details.get('id', 'N/A')}\n"
         output += f"  Status: {details.get('status', 'N/A')}\n"
         output += f"  Type: {details.get('machine_type', 'N/A')} ({details.get('cpu_platform', 'N/A')})\n"
         output += f"  Created: {details.get('creation_timestamp', 'N/A')}\n"
 
-        # Network Output
         if details['network_interfaces']:
-            ni = details['network_interfaces'][0] # Show first interface
+            ni = details['network_interfaces'][0]
             output += f"  Network: {ni.get('network', 'N/A')}, Subnet: {ni.get('subnetwork', 'N/A')}\n"
             output += f"  Internal IP: {ni.get('internal_ip', 'N/A')}\n"
-            # Check if access_configs list exists and is not empty
             if ni.get('access_configs') and len(ni['access_configs']) > 0:
                 ac = ni['access_configs'][0]
                 ext_ip = ac.get('nat_ip')
                 tier = ac.get('network_tier')
                 output += f"  External IP: {ext_ip if ext_ip else 'N/A'} (Tier: {tier if tier else 'N/A'})\n"
             else:
-                output += "  External IP: N/A\n" # Explicitly state N/A if no access config or IP
+                output += "  External IP: N/A\n"
         else:
-             output += "  Network Interfaces: N/A\n" # Indicate if no interfaces found
+             output += "  Network Interfaces: N/A\n"
 
-        # Disk Output (Show all disks)
         if details['disks']:
              output += "  Disks:\n"
              for d in details['disks']:
@@ -377,9 +353,8 @@ def get_vm_instance_details_func(
                   output += f"      Source: {d.get('source','N/A')}\n"
                   output += f"      Type: {d.get('type','N/A')}, Mode: {d.get('mode','N/A')}, AutoDelete: {d.get('auto_delete')}\n"
         else:
-             output += "  Disks: N/A\n" # Indicate if no disks found
+             output += "  Disks: N/A\n"
 
-        # Labels Output
         if details['labels']:
              output += f"  Labels: {json.dumps(details['labels'])}\n"
         else:

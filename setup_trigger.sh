@@ -1,6 +1,6 @@
 #!/bin/bash
+# setup_trigger.sh
 
-# Exit immediately if a command exits with a non-zero status.
 set -e
 
 # --- Configuration ---
@@ -8,8 +8,8 @@ ENV_FILE=".env"
 TRIGGER_NAME="adk-demo-main-trigger"
 GITHUB_REPO_OWNER="samberthol"
 GITHUB_REPO_NAME="adk-demo"
-TRIGGER_BRANCH="^main$" # Regex for the main branch
-BUILD_CONFIG_FILE="cloudbuild.yaml" # Assumes rename from cloudbuild-feature.yaml
+TRIGGER_BRANCH="^main$"
+BUILD_CONFIG_FILE="cloudbuild.yaml"
 
 # --- Helper Function to Check for Required Tools ---
 check_tool() {
@@ -28,7 +28,7 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 echo "Loading environment variables from $ENV_FILE..."
-set -a # Automatically export all variables
+set -a
 source "$ENV_FILE"
 set +a
 echo "Variables loaded."
@@ -42,19 +42,13 @@ echo "Using GCP Project: $GCP_PROJECT_ID"
 gcloud config set project "$GCP_PROJECT_ID"
 
 # --- Format substitutions from .env file ---
-# Reads variables from .env, adds "_" prefix, and formats for gcloud command
 echo "Formatting substitution variables..."
 SUBSTITUTIONS=""
-# Read lines from .env, ignore comments and empty lines
 while IFS= read -r line || [[ -n "$line" ]]; do
-  # Remove comments and surrounding whitespace
   line=$(echo "$line" | sed 's/#.*//' | sed 's/^[ \t]*//;s/[ \t]*$//')
-  # Skip empty lines
   [ -z "$line" ] && continue
-  # Split KEY=VALUE
   key=$(echo "$line" | cut -d '=' -f 1)
   value=$(echo "$line" | cut -d '=' -f 2-)
-  # Add to substitutions string if key is not empty
   if [ -n "$key" ]; then
     if [ -z "$SUBSTITUTIONS" ]; then
       SUBSTITUTIONS="_${key}=${value}"
@@ -68,7 +62,6 @@ if [ -z "$SUBSTITUTIONS" ]; then
     echo "Error: Could not read any variables from $ENV_FILE to use as substitutions."
     exit 1
 fi
-# echo "Substitutions string: $SUBSTITUTIONS" # Uncomment for debugging
 
 # --- Security Warning ---
 echo "---------------------------------------------------------------------"
@@ -82,17 +75,15 @@ echo "trigger configuration instead of passing them as direct substitutions."
 echo "See: https://cloud.google.com/build/docs/securing-builds/use-secrets"
 echo "---------------------------------------------------------------------"
 read -p "Do you want to proceed? (y/N): " -n 1 -r
-echo # Move to a new line
+echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]
 then
     echo "Aborting."
     exit 1
 fi
 
-# --- Connect to GitHub Repository (User Interaction Needed First Time) ---
+# --- Connect to GitHub Repository ---
 echo "Checking GitHub connection..."
-# This command might fail if connection already exists, which is okay.
-# It primarily helps initiate the connection process if needed.
 gcloud alpha builds connections create github "$GITHUB_REPO_OWNER-$GITHUB_REPO_NAME-connection" --region="$REGION" --authorizer-token-secret-version=latest --app-installation-id=0 || echo "GitHub connection likely already exists or setup needs manual completion in browser."
 
 echo "---------------------------------------------------------------------"
@@ -107,7 +98,6 @@ read -p "Press Enter to continue once the GitHub App is installed/verified..."
 # --- Create/Update Cloud Build Trigger ---
 echo "Attempting to create/update Cloud Build trigger '$TRIGGER_NAME'..."
 
-# --- This is the CORRECTED block for your script ---
 if gcloud beta builds triggers describe "$TRIGGER_NAME" --region="$REGION" > /dev/null 2>&1; then
     echo "Trigger '$TRIGGER_NAME' already exists. Updating it..."
     gcloud beta builds triggers update github "$TRIGGER_NAME" \
