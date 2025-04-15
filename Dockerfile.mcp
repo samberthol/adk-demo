@@ -1,5 +1,5 @@
 # Use a Go version that meets the dependency requirement (>= 1.23.7)
-FROM golang:1.23 AS build # <-- Updated Go version here
+FROM golang:1.23 AS build
 
 # Install git
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
