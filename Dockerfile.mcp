@@ -1,6 +1,5 @@
-# Use the official Dockerfile structure from github/github-mcp-server
-# Base image for building Go applications
-FROM golang:1.21 AS build
+# Use a Go version that meets the dependency requirement (>= 1.23.7)
+FROM golang:1.23 AS build # <-- Updated Go version here
 
 # Install git
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
@@ -17,10 +16,10 @@ RUN git clone https://github.com/github/github-mcp-server.git .
 RUN go env -w GOMODCACHE=/root/.cache/go-build
 
 # Download dependencies based on the cloned go.mod/go.sum
+# This should now work with the updated Go version
 RUN --mount=type=cache,target=/root/.cache/go-build go mod download
 
 # Build the server binary using the cloned source
-# Using the build command structure from the official Dockerfile
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -ldflags="-s -w" -o github-mcp-server cmd/github-mcp-server/main.go
 
 # --- Final Stage ---
@@ -33,8 +32,6 @@ WORKDIR /app
 COPY --from=build /build/github-mcp-server .
 
 # *** REMINDER ***
-# The official server runs via stdio.
-# Cloud Run requires an HTTP server listening on the $PORT environment variable.
-# This CMD will likely NOT work correctly with Cloud Run's health checks.
-# For a functional Cloud Run service, this binary would need an HTTP wrapper or be modified.
+# The official server runs via stdio. This CMD is unlikely to work correctly
+# with Cloud Run's HTTP health checks and request serving.
 CMD ["./github-mcp-server", "stdio"]
