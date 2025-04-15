@@ -1,0 +1,40 @@
+# Use the official Dockerfile structure from github/github-mcp-server
+# Base image for building Go applications
+FROM golang:1.21 AS build
+
+# Install git
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory inside the container
+WORKDIR /build
+
+# Clone the official github-mcp-server repository
+# You might want to clone a specific tag or branch for stability:
+# RUN git clone --branch vX.Y.Z https://github.com/github/github-mcp-server.git .
+RUN git clone https://github.com/github/github-mcp-server.git .
+
+# Set Go module cache path
+RUN go env -w GOMODCACHE=/root/.cache/go-build
+
+# Download dependencies based on the cloned go.mod/go.sum
+RUN --mount=type=cache,target=/root/.cache/go-build go mod download
+
+# Build the server binary using the cloned source
+# Using the build command structure from the official Dockerfile
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -ldflags="-s -w" -o github-mcp-server cmd/github-mcp-server/main.go
+
+# --- Final Stage ---
+# Use a minimal base image
+FROM gcr.io/distroless/base-debian12
+
+WORKDIR /app
+
+# Copy only the built binary from the build stage
+COPY --from=build /build/github-mcp-server .
+
+# *** REMINDER ***
+# The official server runs via stdio.
+# Cloud Run requires an HTTP server listening on the $PORT environment variable.
+# This CMD will likely NOT work correctly with Cloud Run's health checks.
+# For a functional Cloud Run service, this binary would need an HTTP wrapper or be modified.
+CMD ["./github-mcp-server", "stdio"]
