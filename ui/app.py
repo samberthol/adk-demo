@@ -163,7 +163,7 @@ with st.sidebar:
     
     st.divider()
     try:
-        st.sidebar.image("assets/google_cloud_logo.png", width=200) # Adjust width as needed
+        st.sidebar.image("assets/google-cloud-logo.png", width=200) # Adjust width as needed
     except FileNotFoundError:
         st.sidebar.warning("Logo image not found. Displaying text.")
         st.sidebar.header("☁️ Google Cloud") # Fallback text
