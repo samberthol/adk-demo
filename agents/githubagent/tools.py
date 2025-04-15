@@ -112,6 +112,7 @@ def search_github_repositories_func(query: str = "") -> str:
 def get_github_repo_file_func(owner: str = "", repo: str = "", path: str = "") -> str:
     """
     Gets the content of a file from a GitHub repository using the 'get_file_contents' tool via the MCP server (mcpo wrapper).
+    
     Requires repository owner, repository name, and the file path (e.g., 'README.md').
     """
     if not owner: return "Get file failed: Repository owner is required."
