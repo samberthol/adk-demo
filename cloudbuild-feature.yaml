@@ -129,4 +129,4 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8' # Or adjust as needed for Go build
+  machineType: 'E2_HIGHCPU_8' # Or adjust as needed for Go build 
