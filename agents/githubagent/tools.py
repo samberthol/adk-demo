@@ -9,85 +9,95 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-# Get MCP Server URL and GitHub Token from environment variables
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") # May be needed by MCP server or direct calls
 
-# Define the base URL for invoking tools on the MCP server
-# Adjust '/invoke' if the github-mcp-server uses a different endpoint path
-MCP_INVOKE_URL = f"{MCP_SERVER_URL}/invoke" if MCP_SERVER_URL else None
-
-# --- Helper Function to Call MCP Server ---
+# --- Helper Function to Call MCP Server (via mcpo REST API) ---
 def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
-    """Helper function to invoke a tool on the configured MCP server via HTTP POST."""
-    if not MCP_INVOKE_URL:
+    """
+    Helper function to invoke a specific tool on the MCP server wrapped by mcpo.
+    Constructs the URL based on the tool name.
+    """
+    if not MCP_SERVER_URL:
         return "Error: MCP_SERVER_URL environment variable is not set. Cannot contact MCP server."
+
+    # Construct the URL dynamically based on the tool name (mcpo convention)
+    # Example: http://host:port/search_repositories
+    tool_invoke_url = f"{MCP_SERVER_URL.rstrip('/')}/{tool_name}" # Ensure no double slashes
 
     headers = {
         "Content-Type": "application/json",
-        # The github-mcp-server might require the token here or handle it internally
-        # Check its documentation. For simplicity, we assume internal handling for now.
-        # If needed: "Authorization": f"Bearer {GITHUB_TOKEN}"
+        # Add API Key header if mcpo was started with --api-key
+        # "Authorization": f"Bearer {YOUR_MCPO_API_KEY}"
+        # Note: GITHUB_TOKEN is likely used by the MCP server internally, not needed here unless mcpo requires it.
     }
-    payload = {
-        "tool": tool_name,
-        "inputs": inputs
-    }
+    # mcpo expects the inputs directly as the JSON body for the POST request
+    payload = inputs
 
-    logger.info(f"Invoking MCP tool '{tool_name}' at {MCP_INVOKE_URL} with inputs: {inputs}")
+    logger.info(f"Invoking MCP tool via mcpo at: POST {tool_invoke_url} with payload: {payload}")
 
     try:
-        response = requests.post(MCP_INVOKE_URL, headers=headers, json=payload, timeout=60) # Added timeout
+        # Use POST method, common for REST actions / tool invocations
+        response = requests.post(tool_invoke_url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
-        logger.info(f"Received response from MCP server (Status: {response.status_code})")
-        # Assuming the MCP server returns JSON with an 'outputs' field
+        logger.info(f"Received response from mcpo (Status: {response.status_code})")
+
+        # Assuming mcpo returns the direct JSON output from the underlying MCP tool
         response_data = response.json()
-        outputs = response_data.get("outputs", {})
 
         # Format the output nicely (this might need adjustment based on actual MCP server response structure)
-        if isinstance(outputs, dict):
+        if isinstance(response_data, dict):
              # Simple formatting, adjust as needed based on tool output specifics
-             return json.dumps(outputs, indent=2)
+             return json.dumps(response_data, indent=2)
+        elif isinstance(response_data, str):
+             # If the response is already a string, return it directly
+             return response_data
         else:
-             return str(outputs) # Fallback for non-dict outputs
+             # Fallback for other types
+             return str(response_data)
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error calling MCP server for tool '{tool_name}': {e}", exc_info=True)
+        logger.error(f"Error calling mcpo wrapper for tool '{tool_name}': {e}", exc_info=True)
         error_details = str(e)
         if e.response is not None:
              try:
+                  # Include response text for better debugging (e.g., detailed 404, 422 validation errors)
                   error_details = f"Status {e.response.status_code}: {e.response.text}"
              except Exception:
                   pass # Keep original error string
-        return f"Error communicating with MCP server: {error_details}"
+        # Special handling for 404 specifically on the tool path
+        if e.response is not None and e.response.status_code == 404:
+             return f"Error: The tool endpoint '{tool_invoke_url}' was not found on the MCP server. Check if the tool name '{tool_name}' is correct and exposed by the server."
+        return f"Error communicating with the MCP server via mcpo: {error_details}"
     except json.JSONDecodeError:
-        logger.error(f"Failed to decode JSON response from MCP server for tool '{tool_name}'. Response: {response.text}")
-        return f"Error: Received invalid response from MCP server."
+        logger.error(f"Failed to decode JSON response from mcpo for tool '{tool_name}'. Response: {response.text}")
+        return f"Error: Received invalid JSON response from mcpo wrapper."
     except Exception as e:
-        logger.error(f"Unexpected error invoking MCP tool '{tool_name}': {e}", exc_info=True)
-        return f"An unexpected error occurred while calling the MCP tool: {str(e)}"
+        logger.error(f"Unexpected error invoking mcpo-wrapped MCP tool '{tool_name}': {e}", exc_info=True)
+        return f"An unexpected error occurred while calling the MCP tool via mcpo: {str(e)}"
 
 
-# --- GitHub Agent Tools (using MCP) ---
+# --- GitHub Agent Tools (using MCP via mcpo) ---
 
 def search_github_repositories_func(query: str = "") -> str:
     """
-    Searches GitHub repositories using the 'search_repositories' tool via the MCP server.
+    Searches GitHub repositories using the 'search_repositories' tool via the MCP server (mcpo wrapper).
     Requires a search query.
     """
     if not query:
         return "GitHub search failed: Search query is required."
 
-    # Tool name expected by github-mcp-server (verify from its docs)
+    # Tool name expected by github-mcp-server (used as path segment by mcpo)
     mcp_tool_name = "search_repositories"
-    inputs = {"query": query}
+    # Inputs expected by the 'search_repositories' tool (check github-mcp-server docs)
+    inputs = {"query": query} # Adjusted based on search results for github-mcp-server tools
 
     return _invoke_mcp_tool(mcp_tool_name, inputs)
 
 def get_github_repo_file_func(owner: str = "", repo: str = "", path: str = "") -> str:
     """
-    Gets the content of a file from a GitHub repository using the 'get_file_contents' tool via the MCP server.
+    Gets the content of a file from a GitHub repository using the 'get_file_contents' tool via the MCP server (mcpo wrapper).
     Requires repository owner, repository name, and the file path (e.g., 'README.md').
     """
     if not owner:
@@ -97,16 +107,18 @@ def get_github_repo_file_func(owner: str = "", repo: str = "", path: str = "") -
     if not path:
         return "Get file failed: File path is required."
 
-    # Tool name expected by github-mcp-server (verify from its docs)
-    mcp_tool_name = "get_file_contents" # Or maybe "get_repo_content" - check MCP server tool list
+    # Tool name expected by github-mcp-server (used as path segment by mcpo)
+    mcp_tool_name = "get_file_contents"
+     # Inputs expected by the 'get_file_contents' tool (check github-mcp-server docs)
     inputs = {
         "owner": owner,
         "repo": repo,
         "path": path,
-        # 'branch': 'main' # Optionally add branch if needed
     }
 
     return _invoke_mcp_tool(mcp_tool_name, inputs)
 
 # Add more functions here to wrap other tools provided by the github-mcp-server as needed
 # e.g., create_issue_func, list_branches_func, etc. following the pattern above.
+# Ensure the 'mcp_tool_name' matches the actual tool name from github-mcp-server
+# and the 'inputs' dictionary matches the arguments required by that specific tool.
