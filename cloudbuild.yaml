@@ -124,4 +124,4 @@ options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8' # Or adjust as needed
 
-  # min change to update main and launch trigger
+  # min change to update main and launch trigger 

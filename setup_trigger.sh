@@ -107,7 +107,7 @@ read -p "Press Enter to continue once the GitHub App is installed/verified..."
 # --- Create/Update Cloud Build Trigger ---
 echo "Attempting to create/update Cloud Build trigger '$TRIGGER_NAME'..."
 
-# Check if trigger exists
+# --- This is the CORRECTED block for your script ---
 if gcloud beta builds triggers describe "$TRIGGER_NAME" --region="$REGION" > /dev/null 2>&1; then
     echo "Trigger '$TRIGGER_NAME' already exists. Updating it..."
     gcloud beta builds triggers update github "$TRIGGER_NAME" \
@@ -116,7 +116,7 @@ if gcloud beta builds triggers describe "$TRIGGER_NAME" --region="$REGION" > /de
       --repo-name="$GITHUB_REPO_NAME" \
       --branch-pattern="$TRIGGER_BRANCH" \
       --build-config="$BUILD_CONFIG_FILE" \
-      --substitutions="$SUBSTITUTIONS" \
+      --update-substitutions="$SUBSTITUTIONS" \
       --description="Trigger for ADK Demo Main Branch" \
       --project="$GCP_PROJECT_ID"
 else
