@@ -1,18 +1,125 @@
+# cloudbuild.yaml (Previously cloudbuild-feature.yaml)
+# Builds TWO images:
+# 1. Python App Image (Streamlit + FastAPI) using Dockerfile
+# 2. Go MCP Server Image using Dockerfile.mcp
+# Deploys THREE Cloud Run services.
+
 steps:
+  # --- Step 1a: Build Python App Image ---
   - name: 'gcr.io/kaniko-project/executor:latest'
+    id: Build-Python-App
     args:
-      - --destination=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_ID}/${_SERVICE_NAME}:${_IMAGE_TAG}
-      - --context=dir://.
-      - --dockerfile=./Dockerfile
-      - --cache=false
-    id: 'Build and Push with Kaniko'
+      - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_PYTHON_APP_IMAGE_NAME}:${SHORT_SHA}'
+      - '--context=dir://.'
+      - '--dockerfile=Dockerfile' # Your existing Python app Dockerfile
+      - '--cache=false'
+
+  # --- Step 1b: Build MCP Server Image ---
+  - name: 'gcr.io/kaniko-project/executor:latest'
+    id: Build-MCP-Server
+    args:
+      - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_MCP_IMAGE_NAME}:${SHORT_SHA}'
+      # *** Assumes github-mcp-server source is in the root context. Adjust if needed. ***
+      - '--context=dir://.'
+      - '--dockerfile=Dockerfile.mcp' # The new Dockerfile for MCP server
+      - '--cache=false'
+      # Add build-arg for GITHUB_TOKEN if needed by Dockerfile.mcp build steps
+      # - '--build-arg=GITHUB_TOKEN=${_GITHUB_TOKEN}' # Example if needed during build
+
+  # --- Step 2a: Deploy Streamlit Service ---
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: Deploy-Streamlit
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME_STREAMLIT}'
+      - '--project=${_GCP_PROJECT_ID}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_PYTHON_APP_IMAGE_NAME}:${SHORT_SHA}' # Use Python App Image
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--port=8080' # Streamlit port
+      - '--allow-unauthenticated'
+      # --- CORRECTED MCP_SERVER_URL construction (No '.a', uses full _REGION) --- #
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}' # Pass GitHub token too if needed by agent tools directly
+      - '--command=streamlit'
+      - '--args=run,ui/app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true'
+      - '--memory=1Gi'
+      - '--quiet'
+    waitFor: ['Build-Python-App', 'Build-MCP-Server'] # Wait for both images
+
+  # --- Step 2b: Deploy FastAPI Service ---
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: Deploy-FastAPI
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME_FASTAPI}'
+      - '--project=${_GCP_PROJECT_ID}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_PYTHON_APP_IMAGE_NAME}:${SHORT_SHA}' # Use Python App Image
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--port=8000' # FastAPI port
+      - '--session-affinity'
+      - '--allow-unauthenticated'
+      # --- CORRECTED MCP_SERVER_URL construction (No '.a', uses full _REGION) --- #
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}' # Pass GitHub token too if needed by agent tools directly
+      - '--command=gunicorn'
+      - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000'
+      - '--memory=1Gi'
+      - '--quiet'
+    waitFor: ['Build-Python-App', 'Build-MCP-Server'] # Wait for both images
+
+  # --- Step 2c: Deploy MCP Server Service ---
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: Deploy-MCP-Server
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME_MCP}' # New service name for MCP server
+      - '--project=${_GCP_PROJECT_ID}'
+      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_MCP_IMAGE_NAME}:${SHORT_SHA}' # Use MCP Server Image
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      - '--port=${_MCP_SERVER_PORT}' # Port for MCP service (e.g., 8081), though the stdio CMD won't use it correctly.
+      - '--allow-unauthenticated' # Adjust as needed, maybe restrict ingress later
+      # --- ADD GITHUB_PERSONAL_ACCESS_TOKEN --- #
+      - '--set-env-vars=^##^GITHUB_PERSONAL_ACCESS_TOKEN=${_GITHUB_TOKEN}' # MCP Server needs this token
+      # The command is set by the Dockerfile's CMD. Cloud Run expects an HTTP server.
+      # If the Dockerfile CMD was different (e.g., running a wrapper), specify command/args here.
+      - '--memory=512Mi' # Adjust memory as needed
+      - '--quiet'
+    waitFor: ['Build-Python-App', 'Build-MCP-Server'] # Wait for both images
 
 substitutions:
-  _REGION: 'us-central1'
-  _REPO_ID: 'adk-agent-images'
-  _SERVICE_NAME: 'adk-multi-agent-demo'
-  _IMAGE_TAG: 'latest'
+  # These will be provided by the trigger from .env or secrets
+  _GCP_PROJECT_ID: ''
+  _REGION: '' # e.g., us-central1
+  _REPO_ID: ''
+  _PYTHON_APP_IMAGE_NAME: ''
+  _MCP_IMAGE_NAME: ''
+  _SERVICE_NAME_STREAMLIT: ''
+  _SERVICE_NAME_FASTAPI: ''
+  _SERVICE_NAME_MCP: ''
+  _GOOGLE_API_KEY: ''
+  _GITHUB_TOKEN: ''
+  _AGENT_MODEL_NAME: ''
+  _BQ_DEFAULT_LOCATION: ''
+  _VM_DEFAULT_ZONE: ''
+  _VM_DEFAULT_INSTANCE_NAME: ''
+  _VM_DEFAULT_MACHINE_TYPE: ''
+  _VM_DEFAULT_SOURCE_IMAGE: ''
+  _VM_DEFAULT_DISK_SIZE_GB: ''
+  _VM_DEFAULT_DISK_TYPE: ''
+  _VM_DEFAULT_SUBNETWORK: ''
+  _VM_DEFAULT_SERVICE_ACCOUNT: ''
+  _MCP_SERVER_PORT: ''
+  _PROJECT_HASH: ''
+  # --- Derived variables ---
+  _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
+  machineType: 'E2_HIGHCPU_8' # Or adjust as needed
