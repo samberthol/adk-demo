@@ -15,7 +15,7 @@ ADK_SESSION_ID_KEY = f'adk_session_id_{APP_NAME}' # Key for session_id in st.ses
 ADK_SERVICE_KEY = f'adk_service_{APP_NAME}'      # Key for service in st.session_state
 ADK_RUNNER_KEY = f'adk_runner_{APP_NAME}'       # Key for runner in st.session_state
 MESSAGE_HISTORY_KEY = f"messages_{APP_NAME}"     # Key for chat history
-GCP_LOGO_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Google_Cloud_Platform_logo.svg/320px-Google_Cloud_Platform_logo.svg.png" # Google Cloud Logo URL
+# GCP_LOGO_URL = "..." # Removed - Using styled text instead
 
 # --- Page Configuration (Apply First) ---
 st.set_page_config(
@@ -192,8 +192,16 @@ except Exception as e:
 
 # --- Sidebar UI ---
 with st.sidebar:
-    # Add Google Cloud logo at the top of the sidebar
-    st.image(GCP_LOGO_URL, width=200) # Adjust width as needed
+    # Use styled Markdown for the Google Cloud logo (avoids broken images)
+    st.markdown(
+        """
+        <h2 style='color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
+            <span style='color:#4285F4;'>G</span><span style='color:#EA4335;'>o</span><span style='color:#FBBC05;'>o</span><span style='color:#4285F4;'>g</span><span style='color:#34A853;'>l</span><span style='color:#EA4335;'>e</span> Cloud
+        </h2>
+        """,
+        unsafe_allow_html=True
+    )
+    # st.image(GCP_LOGO_URL, width=200) # Removed image version
     st.divider() # Add a visual divider
 
     st.header("⚙️ Session Info") # Use header for better structure
@@ -223,7 +231,8 @@ with st.sidebar:
     # Display agent details with markdown for potential styling/icons
     st.markdown(f"**Agent:** `{runner_instance.agent.name if runner_instance and runner_instance.agent else 'N/A'}`")
     st.markdown(f"**App:** `{APP_NAME}`")
-    st.markdown(f"**User:** `{USER_ID}`")
+    # REMOVED User ID display:
+    # st.markdown(f"**User:** `{USER_ID}` 🧑‍💻")
 
     # Put full session ID in an expander to keep sidebar tidy
     with st.expander("Show Full Session ID"):
@@ -232,6 +241,20 @@ with st.sidebar:
 # --- Main Chat Interface UI ---
 st.title("☁️ GCP Agent Hub") # Updated title with icon
 st.caption("Powered by Google ADK")
+
+# --- ADDED: Agent Capabilities Box ---
+st.info(
+    """
+    **What I can help with:**
+    * **GCP Resources:** Manage Compute Engine VMs (create, list, start, stop, delete, details) and BigQuery Datasets (create).
+    * **BigQuery Data:** Execute SQL queries against your BigQuery tables.
+    * **GitHub:** Search for repositories and retrieve file contents.
+    Ask me things like "list my VMs", "run a query to count users", or "find langchain repos on github".
+    """,
+    icon="ℹ️"
+)
+# --- End Capabilities Box ---
+
 
 # Initialize chat history in session state if it doesn't exist
 if MESSAGE_HISTORY_KEY not in st.session_state:
@@ -277,3 +300,4 @@ if prompt := st.chat_input("Ask about GCP resources, data, or GitHub..."):
                     message_placeholder.error(error_msg, icon="🚨")
                     # Add error message to chat history for context
                     st.session_state[MESSAGE_HISTORY_KEY].append({"role": "assistant", "content": error_msg})
+
