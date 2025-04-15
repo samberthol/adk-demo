@@ -30,17 +30,9 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # Copy the rest of the application code into the container
 COPY . .
 
-# Copy the startup script and make it executable
-COPY start.sh .
-RUN chmod +x start.sh
-
 # Make port 8080 available to the world outside this container (Streamlit default)
 # Also exposing 8000 for FastAPI internal communication if needed, though Cloud Run primarily uses 8080
 EXPOSE 8080 8000
 
 # Use tini as the entrypoint to properly handle signals and zombie processes
 ENTRYPOINT ["/usr/bin/tini", "--"]
-
-# Run start.sh when the container launches
-# This script will start both Gunicorn (FastAPI) and Streamlit
-CMD ["./start.sh"]
