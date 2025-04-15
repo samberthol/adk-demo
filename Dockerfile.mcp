@@ -33,8 +33,4 @@ COPY --from=builder /build/github-mcp-server /app/github-mcp-server
 RUN chmod +x /app/github-mcp-server
 
 # CMD uses the path /app/github-mcp-server
-# Option 1 (Original):
-# ENTRYPOINT ["mcpo"]
-# CMD ["--host", "0.0.0.0", "--port", "$PORT", "--", "/app/github-mcp-server", "stdio"]
-# Option 2 (Alternative using sh -c):
 CMD ["sh", "-c", "mcpo --host 0.0.0.0 --port $PORT -- /app/github-mcp-server stdio"]
