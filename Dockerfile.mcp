@@ -1,50 +1,40 @@
 # --- Stage 1: Build github-mcp-server binary ---
-    FROM golang:1.23 AS builder
+FROM golang:1.23 AS builder
+# Install git
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
-    # Install git
-    RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-    
-    WORKDIR /build
-    
-    # Clone the official github-mcp-server repository
-    RUN git clone https://github.com/github/github-mcp-server.git .
-    
-    # Set Go module cache path
-    RUN go env -w GOMODCACHE=/root/.cache/go-build
-    
-    # Download dependencies
-    RUN --mount=type=cache,target=/root/.cache/go-build go mod download
-    
-    # Build the server binary
-    RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -ldflags="-s -w" -o github-mcp-server cmd/github-mcp-server/main.go
-    
-    # --- Stage 2: Setup Python runtime with mcpo and the Go binary ---
-    FROM python:3.11-slim AS final
-    
-    WORKDIR /app
-    
-    # Install mcpo using pip
-    # Also install uv for potentially faster execution if mcpo benefits from it, or remove if not needed
-    RUN pip install --no-cache-dir mcpo uv
-    
-    # Copy the built github-mcp-server binary from the builder stage
-    COPY --from=builder /build/github-mcp-server /app/github-mcp-server
-    
-    # Make the binary executable (important!)
-    RUN chmod +x /app/github-mcp-server
-    
-    # Expose the port Cloud Run will map to $PORT (e.g., 8080 or 8081)
-    # Cloud Run automatically provides the PORT env var, we don't need EXPOSE for Cloud Run specifically,
-    # but it's good practice. The actual port is set in cloudbuild.yaml.
-    # EXPOSE 8081
-    
-    # CMD to run mcpo:
-    # - Listens on all interfaces (0.0.0.0)
-    # - Listens on the port specified by the $PORT environment variable (provided by Cloud Run)
-    # - Uses "--" to separate mcpo args from the command it needs to wrap.
-    # - Wraps the github-mcp-server stdio command.
-    # Using "uvx mcpo" might be slightly faster if uv is installed and beneficial
-    # CMD ["uvx", "mcpo", "--host", "0.0.0.0", "--port", "$PORT", "--", "/app/github-mcp-server", "stdio"]
-    # Using standard python invocation:
-    ENTRYPOINT ["mcpo"]
-    CMD ["--host", "0.0.0.0", "--port", "$PORT", "--", "/app/github-mcp-server", "stdio"]
+WORKDIR /build
+
+# Clone the official github-mcp-server repository
+RUN git clone https://github.com/github/github-mcp-server.git .
+
+# Set Go module cache path
+RUN go env -w GOMODCACHE=/root/.cache/go-build
+
+# Download dependencies
+RUN --mount=type=cache,target=/root/.cache/go-build go mod download
+
+# Build the server binary
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -ldflags="-s -w" -o github-mcp-server cmd/github-mcp-server/main.go
+
+# --- Stage 2: Setup Python runtime with mcpo and the Go binary ---
+FROM python:3.11-slim AS final
+
+WORKDIR /app # Sets the working directory
+
+# Install mcpo using pip
+RUN pip install --no-cache-dir mcpo uv
+
+# Copy the built github-mcp-server binary from the builder stage
+# This line should copy it FROM /build/github-mcp-server TO /app/github-mcp-server
+COPY --from=builder /build/github-mcp-server /app/github-mcp-server
+
+# Make the binary executable
+RUN chmod +x /app/github-mcp-server
+
+# CMD uses the path /app/github-mcp-server
+# Option 1 (Original):
+# ENTRYPOINT ["mcpo"]
+# CMD ["--host", "0.0.0.0", "--port", "$PORT", "--", "/app/github-mcp-server", "stdio"]
+# Option 2 (Alternative using sh -c):
+CMD ["sh", "-c", "mcpo --host 0.0.0.0 --port $PORT -- /app/github-mcp-server stdio"]
