@@ -40,8 +40,8 @@ steps:
       - '--platform=managed'
       - '--port=8080' # Streamlit port
       - '--allow-unauthenticated'
-      # --- MODIFIED MCP_SERVER_URL construction --- #
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}-${_REGION}.a.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}' # Pass GitHub token too if needed by agent tools directly
+      # --- CORRECTED MCP_SERVER_URL construction (No '.a', uses full _REGION) --- #
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}' # Pass GitHub token too if needed by agent tools directly
       - '--command=streamlit'
       - '--args=run,ui/app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true'
       - '--memory=1Gi'
@@ -63,8 +63,8 @@ steps:
       - '--port=8000' # FastAPI port
       - '--session-affinity'
       - '--allow-unauthenticated'
-      # --- MODIFIED MCP_SERVER_URL construction --- #
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}-${_REGION}.a.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}' # Pass GitHub token too if needed by agent tools directly
+      # --- CORRECTED MCP_SERVER_URL construction (No '.a', uses full _REGION) --- #
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}' # Pass GitHub token too if needed by agent tools directly
       - '--command=gunicorn'
       - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000'
       - '--memory=1Gi'
@@ -118,14 +118,12 @@ substitutions:
   # --- Derived variables ---
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
   # --- Variables for constructing MCP_SERVER_URL ---
-  # Cloud Run URL format: https://[SERVICE_NAME]-[PROJECT_HASH]-[REGION_CODE].a.run.app
   # You need the project hash. This isn't a standard substitution.
   # OPTION 1: Hardcode (or pass in) the hash if known.
   # OPTION 2: Use a script/step *after* MCP deployment to get its URL and update the other services (more complex).
   # OPTION 3: Use a predictable name + DNS mapping (most robust).
   # This example uses a placeholder - replace with your actual values or implement Option 2/3.
   _PROJECT_HASH: 'your-project-hash' # Replace with your project's hash (find in Cloud Run service URL)
-  # _REGION_CODE is no longer needed for URL construction
 
 options:
   logging: CLOUD_LOGGING_ONLY
