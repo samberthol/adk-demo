@@ -160,8 +160,15 @@ with st.sidebar:
         """,
         unsafe_allow_html=True
     )
+    
     st.divider()
-
+    try:
+        st.sidebar.image("assets/google_cloud_logo.png", width=200) # Adjust width as needed
+    except FileNotFoundError:
+        st.sidebar.warning("Logo image not found. Displaying text.")
+        st.sidebar.header("☁️ Google Cloud") # Fallback text
+    st.divider()
+    
     st.header("⚙️ Session Info")
     if current_adk_session_id:
         st.success(f"Session Active ✅")
@@ -204,7 +211,7 @@ st.info(
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:
-    st.session_state[MESSAGE_HISTORY_KEY] = [{"role": "assistant", "content": "Hello Samuel! As a fellow Googler passionate about AI/ML and Cloud, how can I assist you today?"}]
+    st.session_state[MESSAGE_HISTORY_KEY] = [{"role": "assistant", "content": "Hello dear Cloud enthusiast, how can I assist you today?"}]
 
 for message in st.session_state[MESSAGE_HISTORY_KEY]:
     avatar_icon = "🧑‍💻" if message["role"] == "user" else "🤖"
