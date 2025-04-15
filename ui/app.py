@@ -152,12 +152,13 @@ except Exception as e:
 
 # --- Sidebar UI ---
 with st.sidebar:
-    try:
-        st.sidebar.image("assets/google-cloud-logo.png", width=200) # Adjust width as needed
-    except FileNotFoundError:
-        st.sidebar.warning("Logo image not found. Displaying text.")
-        st.sidebar.header("☁️ Google Cloud") # Fallback text
-            
+    col1, col2, col3 = st.columns([1, 4, 1])
+    with col2:
+        try:
+            st.image("assets/google-cloud-logo.png", width=200) # Adjust width as needed
+        except FileNotFoundError:
+            st.warning("Logo image not found.")
+            st.header("☁️ Google Cloud") # Fallback text       
     st.markdown(
     """
     <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
