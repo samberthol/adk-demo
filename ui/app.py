@@ -152,21 +152,21 @@ except Exception as e:
 
 # --- Sidebar UI ---
 with st.sidebar:
-    st.markdown(
-        """
-        <h2 style='color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
-            <span style='color:#4285F4;'>G</span><span style='color:#EA4335;'>o</span><span style='color:#FBBC05;'>o</span><span style='color:#4285F4;'>g</span><span style='color:#34A853;'>l</span><span style='color:#EA4335;'>e</span> Cloud
-        </h2>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    st.divider()
     try:
         st.sidebar.image("assets/google-cloud-logo.png", width=200) # Adjust width as needed
     except FileNotFoundError:
         st.sidebar.warning("Logo image not found. Displaying text.")
         st.sidebar.header("☁️ Google Cloud") # Fallback text
+            
+    st.markdown(
+    """
+    <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
+        <span style='color:#4285F4;'>G</span><span style='color:#EA4335;'>o</span><span style='color:#FBBC05;'>o</span><span style='color:#4285F4;'>g</span><span style='color:#34A853;'>l</span><span style='color:#EA4335;'>e</span> Cloud
+    </h2>
+    """,
+    unsafe_allow_html=True
+    )
+    
     st.divider()
     
     st.header("⚙️ Session Info")
