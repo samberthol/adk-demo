@@ -4,13 +4,12 @@ This project demonstrates a multi-agent system built with the Google Agent Devel
 
 ## Overview
 
-This project serves as an example for developers and architects exploring agentic AI systems on Google Cloud. It utilizes a `MetaAgent` to intelligently route user requests to specialized agents responsible for specific tasks:
-
+This project utilizes a `MetaAgent` to intelligently route user requests to specialized agents responsible for specific tasks:
 * **Resource Management:** Interacting with Google Compute Engine VMs.
 * **Data Science:** Querying Google BigQuery datasets.
 * **GitHub:** Interacting with GitHub repositories via a MCP proxy.
 
-The system includes both a web-based UI (Streamlit) and an API endpoint (FastAPI) for interaction, simulating different frontend approaches. Deployment is fully automated via Cloud Build upon pushes to the main branch of the configured GitHub repository.
+The system includes a web-based UI built with Streamlit for interaction. Deployment is fully automated via Cloud Build upon pushes to the main branch of the configured GitHub repository.
 
 ## Core Components
 
@@ -22,18 +21,17 @@ This demo integrates the following solutions :
     * `ResourceAgent`: Manages Google Compute Engine resources. Uses the [Compute Engine API](https://cloud.google.com/compute/docs).
     * `DataScienceAgent`: Manages Google BigQuery resources. Uses the [BigQuery API](https://cloud.google.com/bigquery/docs).
     * `githubagent`: Interacts with GitHub via the MCP server.
-* **User Interfaces:**
+* **User Interface:**
     * **[Streamlit](https://docs.streamlit.io/):** Provides a rapid development web UI for chat interaction.
-    * **[FastAPI](https://fastapi.tiangolo.com/):** Offers a high-performance API backend, including a WebSocket endpoint demonstrated for potential voice interaction.
 * **[GitHub MCP Server](https://github.com/github/github-mcp-server):** A Go application (running in a separate container) acting as a proxy to provide GitHub tools via the Model Context Protocol (MCP), wrapped by `mcpo` for HTTP access. See also [MCP Server Examples](https://github.com/modelcontextprotocol/servers).
 * **[Google Cloud Build](https://cloud.google.com/build/docs):** Automates the build, test, and deployment pipeline defined in `cloudbuild.yaml`.
-* **[Google Cloud Run](https://cloud.google.com/run/docs):** Hosts the containerized applications (Streamlit UI, FastAPI UI, MCP Server) as scalable, managed services.
+* **[Google Cloud Run](https://cloud.google.com/run/docs):** Hosts the containerized applications (Streamlit UI, MCP Server) as scalable, managed services.
 * **[Google Artifact Registry](https://cloud.google.com/artifact-registry/docs):** Stores the built container images.
 
 **Project Diagram**
 
 <p align="center">
-<img src="./assets/td-flow-chart.png" alt="Diagram" width="600"/>
+<img src="./assets/td-flow-chart.png" alt="Diagram" width="800"/>
 </p>
 
 ## Prerequisites
@@ -116,13 +114,13 @@ To deploy this project using your own GCP project and GitHub fork:
     * If the first build fails, troubleshoot using the build logs, fix the underlying issue (permissions, configuration), and trigger a new build by pushing another small change to your `main` branch.
 
 7.  **Access Deployed Services:**
-    * Once the Cloud Build pipeline succeeds, it will deploy three Cloud Run services.
-    * Find the public URLs for the Streamlit (`SERVICE_NAME_STREAMLIT`) and FastAPI (`SERVICE_NAME_FASTAPI`) services in the Cloud Run section of the GCP console. The MCP service (`SERVICE_NAME_MCP`) runs internally and is accessed by the other two via its service URL.
+    * Once the Cloud Build pipeline succeeds, it will deploy two Cloud Run services.
+    * Find the public URL for the Streamlit (`SERVICE_NAME_STREAMLIT`) service in the Cloud Run section of the GCP console. The MCP service (`SERVICE_NAME_MCP`) runs internally and is accessed by the Streamlit service via its service URL.
 
 ## Configuration Notes
 
-* **Secrets Management:** As emphasized, using Google Secret Manager is the recommended practice for handling sensitive data like API keys and tokens in `cloudbuild.yaml`, rather than passing them as direct substitutions from `.env`.
-* **Session Persistence:** The UIs currently use ADK's `InMemorySessionService`. This means conversation history is lost if the Cloud Run instances restart. For persistent sessions in production, investigate alternative session services compatible with ADK.
+* **Secrets Management:** Using Google Secret Manager is the recommended practice for handling sensitive data like API keys and tokens in `cloudbuild.yaml`, rather than passing them as direct substitutions from `.env`.
+* **Session Persistence:** The UIs currently use ADK's `InMemorySessionService`. This means conversation history is lost if the Cloud Run instances restart.
 
 ## Contributing
 

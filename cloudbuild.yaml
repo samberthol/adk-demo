@@ -1,6 +1,6 @@
 # cloudbuild.yaml
-# Builds TWO images: Python App (Streamlit + FastAPI) and Go MCP Server.
-# Deploys THREE Cloud Run services.
+# Builds TWO images: Python App (Streamlit) and Go MCP Server.
+# Deploys TWO Cloud Run services.
 
 steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
@@ -40,27 +40,6 @@ steps:
     waitFor: ['Build-Python-App', 'Build-MCP-Server']
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: Deploy-FastAPI
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'deploy'
-      - '${_SERVICE_NAME_FASTAPI}'
-      - '--project=${_GCP_PROJECT_ID}'
-      - '--image=${_ARTIFACT_REGISTRY_REPO}/${_PYTHON_APP_IMAGE_NAME}:${SHORT_SHA}'
-      - '--region=${_REGION}'
-      - '--platform=managed'
-      - '--port=8000'
-      - '--session-affinity'
-      - '--allow-unauthenticated'
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}'
-      - '--command=gunicorn'
-      - '--args=ui.api:app,--workers=2,--worker-class=uvicorn.workers.UvicornWorker,--bind=0.0.0.0:8000'
-      - '--memory=1Gi'
-      - '--quiet'
-    waitFor: ['Build-Python-App', 'Build-MCP-Server']
-
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-MCP-Server
     entrypoint: gcloud
     args:
@@ -85,7 +64,6 @@ substitutions:
   _PYTHON_APP_IMAGE_NAME: ''
   _MCP_IMAGE_NAME: ''
   _SERVICE_NAME_STREAMLIT: ''
-  _SERVICE_NAME_FASTAPI: ''
   _SERVICE_NAME_MCP: ''
   _GOOGLE_API_KEY: ''
   _GITHUB_TOKEN: ''

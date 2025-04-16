@@ -8,7 +8,4 @@ pandas
 google-api-core
 google-genai>=1.10.0
 nest-asyncio
-fastapi
-uvicorn[standard]
-ffmpeg-python
 requests
