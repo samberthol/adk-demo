@@ -81,6 +81,7 @@ substitutions:
   _PROJECT_HASH: ''
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
 
+
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
