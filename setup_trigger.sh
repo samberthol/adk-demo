@@ -3,11 +3,11 @@
 
 set -e
 
-ENV_FILE=".env"
-TRIGGER_NAME="adk-demo-main-trigger"
+ENV_FILE=".env.llm.mistral"
+TRIGGER_NAME="adk-demo-main-trigger-llm-mistral"
 GITHUB_REPO_OWNER="samberthol"
 GITHUB_REPO_NAME="adk-demo"
-TRIGGER_BRANCH="^main$"
+TRIGGER_BRANCH="^llm-mistral$"
 BUILD_CONFIG_FILE="cloudbuild.yaml"
 IGNORED_FILES="README.md,LICENSE,docs/**,*.md"
 

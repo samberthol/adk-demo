@@ -9,9 +9,13 @@ venv/
 
 # Secrets
 .env
+.env.llm.mistral
 .ideas.txt
 
 # IDE/OS specific
 .idea/
 .vscode/
 *.DS_Store
+
+
+
