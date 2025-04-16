@@ -9,8 +9,10 @@ from google.protobuf.struct_pb2 import Value
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event, RequestEvent, FinalResponseEvent, ErrorEvent
-from google.genai.types import Content, Part # Re-use Content/Part for structure
+# --- MODIFIED IMPORT ---
+# Remove RequestEvent, rely on event methods later
+from google.adk.events import Event, FinalResponseEvent, ErrorEvent
+from google.genai.types import Content, Part
 
 
 logging.basicConfig(level=logging.INFO)
@@ -57,96 +59,63 @@ class VertexMistralAgent(BaseAgent):
             yield ErrorEvent(message="Vertex AI client not initialized.")
             return
 
-        request_event = context.current_event
-        if not isinstance(request_event, RequestEvent) or not request_event.content:
-            yield ErrorEvent(message="Invalid request event for VertexMistralAgent.")
-            return
+        current_event = context.current_event
+        # --- MODIFIED CHECK ---
+        # Check if it's a request event using its method, not type name
+        if not current_event or not current_event.is_request() or not current_event.content:
+             logger.warning(f"[{self.name}] Received invalid/non-request event: {type(current_event)}")
+             yield ErrorEvent(message="Invalid request event for VertexMistralAgent.")
+             return
 
         # --- Construct the payload for Vertex AI ---
-        # Adapt this based on how you want to handle history and instructions
-        # For now, just using the latest user message and the system instruction
-
+        # (Payload construction logic remains the same)
         messages_payload = []
+        # Add system instruction handling here if needed based on model requirements
 
-        # Add system instruction if provided
-        if self.instruction:
-             # Vertex AI often uses a different format for system prompts or
-             # includes them within the first user message context, depending on the model.
-             # For Mistral via rawPredict/SDK, it's usually part of the messages list.
-             # Let's prepend it conceptually, though the API might require specific structuring.
-             # We might need a dedicated 'system' role or merge it.
-             # Sticking to user/assistant roles for now as per Mistral API examples.
-             # A simple approach: add instruction to the first user turn? Or use system role if supported.
-             # Let's assume we just build the history for now. Mistral API typically uses user/assistant roles.
-             pass # Revisit instruction handling if needed based on API behavior
-
-
-        # Add conversation history (potentially limit size)
-        # ADK's context.history should provide past turns
         history = context.history or []
         for event in history:
-             # Convert ADK events back to user/assistant message format
-             # This needs careful mapping based on your Event types
              if event.is_request() and event.content and event.content.parts:
                   messages_payload.append(
                        {"role": "user", "content": event.content.parts[0].text}
                   )
              elif event.is_final_response() and event.content and event.content.parts:
-                  # Assuming model's role is 'assistant'
                   messages_payload.append(
                        {"role": "assistant", "content": event.content.parts[0].text}
                   )
-             # Handle ToolRequest/ResponseEvents if tools are involved
 
-        # Add the current user message
-        current_text = request_event.content.parts[0].text
+        current_text = current_event.content.parts[0].text
         messages_payload.append({"role": "user", "content": current_text})
 
-        # Define instance and parameters for the prediction call
-        # The structure depends heavily on the specific model's requirements on Vertex AI
         instances = [{"messages": messages_payload}]
         parameters = {
-            "temperature": 0.7, # Example parameter
-            "max_output_tokens": 1024, # Example parameter
-            # Add other parameters like top_p, top_k as needed
+            "temperature": 0.7,
+            "max_output_tokens": 1024,
         }
         parameters_dict = {}
         json_format.ParseDict(parameters, parameters_dict)
 
         logger.info(f"[{self.name}] Sending prediction request to Vertex AI model {self.model_name}...")
-        # logger.debug(f"[{self.name}] Payload (Instances): {instances}") # Be careful logging PII
-        # logger.debug(f"[{self.name}] Parameters: {parameters}")
 
         try:
-            # Use the predict method of the Model object
             response = self.model.predict(instances=instances, parameters=parameters_dict)
 
             # --- Process the response ---
+            # (Response processing logic remains the same - MUST be verified)
             if not response.predictions:
                  logger.warning(f"[{self.name}] Vertex AI response contained no predictions.")
                  yield ErrorEvent(message="Model returned no predictions.")
                  return
 
-            # The response structure for publisher models can vary. Inspect the response object.
-            # It often mirrors the structure seen in REST API calls.
-            # Assuming a structure similar to the REST examples:
-            # prediction = response.predictions[0] # Usually a dict or protobuf Struct
-
-            # Convert protobuf Struct to dict if necessary
             prediction_dict = json_format.MessageToDict(response.predictions[0]._pb)
 
-            # Extract the content - PATH MAY VARY GREATLY depending on model!
-            # Check the actual response structure carefully.
-            # Example path based on common chat completion structures:
             if 'candidates' in prediction_dict and prediction_dict['candidates']:
+                # This path might be for Gemini models on Vertex, check Mistral response structure
                 content_text = prediction_dict['candidates'][0]['content']['parts'][0]['text']
-            elif 'choices' in prediction_dict and prediction_dict['choices']: # More like Mistral API
+            elif 'choices' in prediction_dict and prediction_dict['choices']: # More likely for Mistral
                  content_text = prediction_dict['choices'][0]['message']['content']
             else:
-                 # Fallback or further inspection needed
                  logger.warning(f"[{self.name}] Could not extract content from prediction. Response structure: {prediction_dict}")
                  content_text = "[Could not parse model response]"
-
 
             logger.info(f"[{self.name}] Received response from Vertex AI.")
             yield FinalResponseEvent(
@@ -156,5 +125,4 @@ class VertexMistralAgent(BaseAgent):
         except Exception as e:
             logger.error(f"[{self.name}] Error during Vertex AI prediction: {e}", exc_info=True)
             error_message = f"Error calling model: {str(e)}"
-            # Check for specific error types if needed (e.g., permissions)
             yield ErrorEvent(message=error_message)
