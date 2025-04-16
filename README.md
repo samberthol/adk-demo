@@ -15,7 +15,7 @@ The system includes a web-based UI built with Streamlit for interaction. Deploym
 
 This demo integrates the following solutions :
 
-* **[Google Agent Development Kit (ADK)](https://cloud.google.com/vertex-ai/generative-ai/docs/agent-development-kit/quickstart):** The core Python framework for building the multi-agent system.
+* **[Google Agent Development Kit (ADK)](https://google.github.io/adk-docs/):** The core Python framework for building the multi-agent system.
 * **Specialized Agents:**
     * `MetaAgent`: Orchestrates requests to sub-agents.
     * `ResourceAgent`: Manages Google Compute Engine resources. Uses the [Compute Engine API](https://cloud.google.com/compute/docs).
@@ -31,7 +31,7 @@ This demo integrates the following solutions :
 **Project Diagram**
 
 <p align="center">
-<img src="./assets/td-flow-chart.png" alt="Diagram" width="800"/>
+<img src="./assets/td-flow-chart.png" alt="Diagram" width="600"/>
 </p>
 
 ## Prerequisites
