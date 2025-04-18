@@ -9,27 +9,29 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from google.genai.types import Content, Part
 
+# Import the Mistral GCP client library
 try:
-    import google.cloud.aiplatform as aiplatform
-    from google.api_core import exceptions as api_core_exceptions
+    from mistralai_gcp import MistralGoogleCloud
+    # You might need specific exception types from this library if available
 except ImportError:
-    raise ImportError("google-cloud-aiplatform is required for MistralVertexAgent. Please install it.")
+    raise ImportError("mistralai-gcp is required for MistralVertexAgent. Please install it.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class MistralVertexAgent(BaseAgent):
     """
-    Custom ADK agent interacting with Mistral models on Vertex AI via the Python SDK.
+    Custom ADK agent interacting with Mistral models on Vertex AI via the mistralai-gcp library.
     Reads configuration from environment variables and uses ADC for authentication.
-    Passes validated config to superclass during initialization.
     """
-    # Declare the fields expected by the class/Pydantic/BaseAgent
-    model_id: str
-    project_id: str
-    location: str
-    endpoint: aiplatform.Endpoint # Now explicitly required by validation
+    # Declare fields needed for BaseAgent/Pydantic validation if any
+    # We might not need to explicitly declare model_id etc. if not passing to super()
+    # Let's remove them for now unless BaseAgent specifically requires them
+    # model_id: str
+    # project_id: str
+    # location: str
     instruction: Optional[str] = None
+    client: MistralGoogleCloud # Store the client
 
     def __init__(
         self,
@@ -38,79 +40,62 @@ class MistralVertexAgent(BaseAgent):
         instruction: Optional[str] = None,
         **kwargs,
     ):
-        # --- Read, validate, and prepare values BEFORE calling super().__init__ ---
+        # Initialize BaseAgent
+        super().__init__(name=name, description=description, instruction=instruction, **kwargs)
 
         # Read configuration from environment variables
-        model_id_val = os.environ.get('MISTRAL_MODEL_ID')
+        self.model_name_version = os.environ.get('MISTRAL_MODEL_ID') # e.g., mistral-small-2503
         project_id_val = os.environ.get('GCP_PROJECT_ID')
         location_val = os.environ.get('REGION')
+        # self.instruction is handled by super init now if passed
 
         # Validate required config
         missing_vars = []
-        if not model_id_val: missing_vars.append('MISTRAL_MODEL_ID')
+        if not self.model_name_version: missing_vars.append('MISTRAL_MODEL_ID')
         if not project_id_val: missing_vars.append('GCP_PROJECT_ID')
         if not location_val: missing_vars.append('REGION')
 
         if missing_vars:
-            # This error will cause the instantiation to fail if try/except is removed
             raise ValueError(f"MistralVertexAgent requires environment variables: {', '.join(missing_vars)}")
 
-        endpoint_instance = None
         try:
-            # Initialize the Vertex AI SDK. This uses ADC automatically.
-            aiplatform.init(project=project_id_val, location=location_val)
-
-            # Construct the endpoint name for the publisher model
-            endpoint_name = f"projects/{project_id_val}/locations/{location_val}/publishers/mistralai/models/{model_id_val}"
-
-            # Get an SDK client for the endpoint
-            endpoint_instance = aiplatform.Endpoint(endpoint_name=endpoint_name)
-            # Maybe add a check here? e.g., accessing endpoint_instance.display_name could force an API call to verify it exists
-            logger.debug(f"Successfully created Endpoint object for {endpoint_name}")
+            # Initialize the MistralGoogleCloud client
+            # It should use Application Default Credentials (ADC) automatically
+            self.client = MistralGoogleCloud(
+                project_id=project_id_val,
+                region=location_val
+            )
+            logger.info(f"[{self.name}] Initialized MistralGoogleCloud client for project '{project_id_val}' in region '{location_val}'")
 
         except Exception as e:
-            logger.error(f"[{name}] Failed to initialize Vertex AI SDK or Endpoint: {e}", exc_info=True)
-            # Re-raise to ensure instantiation fails if SDK/Endpoint setup fails
-            raise RuntimeError(f"Vertex AI SDK/Endpoint initialization failed: {e}") from e
+            logger.error(f"[{self.name}] Failed to initialize MistralGoogleCloud client: {e}", exc_info=True)
+            raise RuntimeError(f"MistralGoogleCloud client initialization failed: {e}") from e
 
-        # --- Call super().__init__ passing the prepared values ---
-        super().__init__(
-            model_id=model_id_val,
-            project_id=project_id_val,
-            location=location_val,
-            endpoint=endpoint_instance, # Pass the created endpoint object
-            instruction=instruction,     # Pass instruction
-            name=name,
-            description=description,
-            **kwargs,
-        )
-        # --- End of super().__init__ call ---
-
-        # The fields (self.model_id, self.project_id, etc.) are now set by the superclass init
-
-        # Model parameters (adjust names if SDK expects different ones)
+        # Model parameters (use names expected by mistralai-gcp client)
         self.model_parameters = {
             "temperature": 0.7,
-            "topP": 1.0,
-            "maxOutputTokens": 1024,
+            "top_p": 1.0, # Check docs if different name needed
+            "max_tokens": 1024, # Check docs if different name needed
         }
-        logger.info(f"[{self.name}] Initialized successfully using SDK for model '{self.model_id}' in '{self.location}'")
+        logger.info(f"[{self.name}] Configured to use model '{self.model_name_version}'")
 
     async def run_async(
         self, context: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
-        # --- (run_async method remains the same as the previous SDK version) ---
-        # ... (code for preparing messages, calling endpoint.predict via asyncio.to_thread, parsing response) ...
 
         current_event = context.current_event
         if not current_event or not current_event.is_request() or not current_event.content:
              logger.warning(f"[{self.name}] Received invalid/non-request event type: {type(current_event)}")
              raise ValueError("Invalid input: Expected a request event with content.")
 
+        # --- Construct the messages payload ---
+        # (The format [{role: 'user', content: '...'}, ...] is standard)
         messages_payload = []
-        # Use self.instruction which was set during __init__
+        # Use self.instruction from BaseAgent if set
         if self.instruction:
-            messages_payload.append({"role": "system", "content": self.instruction})
+             # System prompt might need specific handling depending on the client
+             # Let's assume it's just another message for now
+             messages_payload.append({"role": "system", "content": self.instruction})
 
         history = context.history or []
         for event in history[-10:]:
@@ -136,59 +121,45 @@ class MistralVertexAgent(BaseAgent):
             logger.error(f"[{self.name}] Could not extract text from current event: {e}", exc_info=True)
             raise ValueError("Invalid request content.")
 
-        instances = [{"messages": messages_payload}]
-        parameters = self.model_parameters
-
+        # --- Make Asynchronous Call via mistralai-gcp Client ---
         content_text = "[Agent encountered an error]"
         try:
-            logger.info(f"[{self.name}] Sending request to Vertex AI Endpoint via SDK...")
+            logger.info(f"[{self.name}] Sending request via MistralGoogleCloud client...")
 
+            # Prepare parameters, filtering out None values if necessary
+            call_params = {
+                "model": self.model_name_version,
+                "messages": messages_payload,
+                **self.model_parameters # Spread the parameters dict
+            }
+
+            # Define the synchronous prediction function
             def sync_predict():
-                # Use self.endpoint which was set during __init__
-                prediction_response = self.endpoint.predict(
-                    instances=instances,
-                    parameters=parameters,
-                )
-                return prediction_response
+                 # Use the client.chat.complete method (or just client.complete if appropriate)
+                 # Check mistralai-gcp docs for exact method structure
+                 response = self.client.chat.complete(**call_params)
+                 return response
 
-            prediction_response = await asyncio.to_thread(sync_predict)
+            # Run the synchronous SDK call in a separate thread
+            # Alternatively, check if mistralai-gcp has an async client or methods like complete_async
+            response = await asyncio.to_thread(sync_predict)
 
-            logger.info(f"[{self.name}] Received response from Vertex AI SDK.")
+            logger.info(f"[{self.name}] Received response from MistralGoogleCloud client.")
 
-            if prediction_response.predictions:
-                first_prediction = prediction_response.predictions[0]
-                if isinstance(first_prediction, dict):
-                     if 'content' in first_prediction:
-                          content_text = first_prediction['content']
-                     elif 'choices' in first_prediction and \
-                          isinstance(first_prediction['choices'], list) and \
-                          len(first_prediction['choices']) > 0 and \
-                          isinstance(first_prediction['choices'][0], dict) and \
-                          'message' in first_prediction['choices'][0] and \
-                          isinstance(first_prediction['choices'][0]['message'], dict) and \
-                          'content' in first_prediction['choices'][0]['message']:
-                          content_text = first_prediction['choices'][0]['message']['content']
-                     else:
-                          logger.warning(f"[{self.name}] Could not find expected content structure in prediction: {first_prediction}")
-                          content_text = f"[Agent received unexpected response structure: {str(first_prediction)[:200]}]"
-                else:
-                     logger.warning(f"[{self.name}] Prediction format not a dict: {type(first_prediction)}")
-                     content_text = f"[Agent received unexpected response type: {type(first_prediction)}]"
+            # --- Process mistralai-gcp Response ---
+            # Structure is likely similar to native Mistral API: response.choices[0].message.content
+            if response.choices:
+                 content_text = response.choices[0].message.content
             else:
-                logger.warning(f"[{self.name}] Received empty predictions list from SDK.")
-                content_text = "[Agent received no predictions]"
+                 logger.warning(f"[{self.name}] Received no choices in response from client.")
+                 content_text = "[Agent received no response choices]"
 
-        except api_core_exceptions.GoogleAPIError as e:
-            logger.error(f"[{self.name}] Vertex AI SDK API error: {e}", exc_info=True)
-            # Decide how to surface this error. Raising it will stop the agent turn.
-            # You could also yield an error message Content object.
-            # Let's yield an error message for now.
-            content_text = f"[Agent encountered API error: {e.message}]"
-            # raise RuntimeError(f"Vertex AI API call failed: {e}") from e
         except Exception as e:
-            logger.error(f"[{self.name}] Unexpected error during SDK prediction: {e}", exc_info=True)
-            content_text = f"[Agent encountered unexpected error: {type(e).__name__}]"
-            # raise RuntimeError(f"Unexpected error during prediction: {e}") from e
+            # Catch potential errors from the mistralai-gcp client or ADC
+            logger.error(f"[{self.name}] Error during MistralGoogleCloud API call: {e}", exc_info=True)
+            content_text = f"[Agent encountered API error: {type(e).__name__}]"
+            # Optionally re-raise: raise RuntimeError(f"Mistral API call failed: {e}") from e
 
+        # --- Yield Final Response ---
         final_content = Content(parts=[Part(text=content_text)])
         yield final_content
