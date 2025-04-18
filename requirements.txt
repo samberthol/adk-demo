@@ -11,3 +11,4 @@ nest-asyncio
 requests
 google-cloud-aiplatform
 httpx
+google-cloud-aiplatform>=1.49.0

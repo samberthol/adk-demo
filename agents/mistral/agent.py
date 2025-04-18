@@ -1,68 +1,45 @@
 # agents/mistral/agent.py
 import os
 import logging
-import json
 import asyncio
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
-import httpx
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
-from google.genai.types import Content, Part
+from google.genai.types import Content, Part # Assuming Content/Part structure is still desired output
+
+# Import the Vertex AI SDK
+try:
+    import google.cloud.aiplatform as aiplatform
+    from google.api_core import exceptions as api_core_exceptions
+except ImportError:
+    raise ImportError("google-cloud-aiplatform is required for MistralVertexAgent. Please install it.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def _get_gcloud_access_token() -> str:
-    # ... (function remains the same) ...
-    try:
-        process = await asyncio.create_subprocess_shell(
-            "gcloud auth print-access-token",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_message = stderr.decode().strip() if stderr else "Unknown error"
-            logger.error(f"Failed to get gcloud access token. Return code: {process.returncode}. Error: {error_message}")
-            raise RuntimeError(f"gcloud auth print-access-token failed: {error_message}")
-
-        access_token = stdout.decode().strip()
-        if not access_token:
-             raise RuntimeError("gcloud auth print-access-token returned empty token.")
-        return access_token
-    except FileNotFoundError:
-        logger.error("Failed to get gcloud access token: 'gcloud' command not found.")
-        raise RuntimeError("'gcloud' command not found. Is Google Cloud SDK installed and in PATH?")
-    except Exception as e:
-        logger.error(f"Unexpected error getting gcloud access token: {e}", exc_info=True)
-        raise RuntimeError(f"Unexpected error getting gcloud access token: {e}")
-
+# No longer need _get_gcloud_access_token
 
 class MistralVertexAgent(BaseAgent):
     """
-    Custom ADK agent interacting with Mistral models on Vertex AI via rawPredict endpoint.
-    Reads configuration from environment variables.
+    Custom ADK agent interacting with Mistral models on Vertex AI via the Python SDK.
+    Reads configuration from environment variables and uses ADC for authentication.
     """
-    # --- Add Class Attribute Declarations ---
-    # Declare the fields that the agent will use, allowing assignment in __init__
+    # Declare fields expected by the class
     model_id: str
     project_id: str
     location: str
     instruction: Optional[str] = None
-    # --- End of Declarations ---
+    endpoint: aiplatform.Endpoint # Added endpoint attribute
 
-    # Keep name, description, etc. in __init__ signature if passed during instantiation
     def __init__(
         self,
         name: str = "MistralVertexAgent",
         description: Optional[str] = None,
-        instruction: Optional[str] = None, # Keep instruction if it was being passed
+        instruction: Optional[str] = None,
         **kwargs,
     ):
-        # Initialize BaseAgent first (adjust if name/description/instruction are passed differently)
         super().__init__(name=name, description=description, **kwargs)
 
         # Read configuration from environment variables
@@ -77,42 +54,50 @@ class MistralVertexAgent(BaseAgent):
         if not location_val: missing_vars.append('REGION')
 
         if missing_vars:
-            # This error will now be raised directly if env vars are missing (due to removed try/except in meta-agent)
             raise ValueError(f"MistralVertexAgent requires environment variables: {', '.join(missing_vars)}")
 
-        # --- Assign validated values to the declared fields ---
+        # Assign validated values to the declared fields
         self.model_id = model_id_val
         self.project_id = project_id_val
         self.location = location_val
-        self.instruction = instruction # Assign instruction from parameter
+        self.instruction = instruction
 
-        # Construct the rawPredict URL using the assigned self attributes
-        self.api_endpoint = f"https://{self.location}-aiplatform.googleapis.com"
-        self.predict_url = (
-            f"{self.api_endpoint}/v1/projects/{self.project_id}"
-            f"/locations/{self.location}/publishers/mistralai/models/{self.model_id}:rawPredict"
-        )
+        try:
+            # Initialize the Vertex AI SDK. This uses ADC automatically.
+            aiplatform.init(project=self.project_id, location=self.location)
 
-        # Model parameters
+            # Construct the endpoint name for the publisher model
+            endpoint_name = f"projects/{self.project_id}/locations/{self.location}/publishers/mistralai/models/{self.model_id}"
+
+            # Get an SDK client for the endpoint
+            self.endpoint = aiplatform.Endpoint(endpoint_name=endpoint_name)
+
+        except Exception as e:
+            logger.error(f"[{self.name}] Failed to initialize Vertex AI SDK or Endpoint: {e}", exc_info=True)
+            raise RuntimeError(f"Vertex AI SDK initialization failed: {e}") from e
+
+        # Model parameters (adjust names if SDK expects different ones)
         self.model_parameters = {
             "temperature": 0.7,
-            "top_p": 1.0,
-            "max_tokens": 1024,
+            "topP": 1.0, # Check SDK docs, might be topP or top_p
+            "maxOutputTokens": 1024, # Check SDK docs, might be maxOutputTokens or max_tokens
         }
-        # Log success *after* all assignments and URL construction
-        logger.info(f"[{self.name}] Initialized using environment config for model '{self.model_id}' at '{self.predict_url}'")
+        logger.info(f"[{self.name}] Initialized using SDK for model '{self.model_id}' in '{self.location}'")
 
     async def run_async(
         self, context: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
-        # ... (run_async method remains the same) ...
+
         current_event = context.current_event
         if not current_event or not current_event.is_request() or not current_event.content:
              logger.warning(f"[{self.name}] Received invalid/non-request event type: {type(current_event)}")
              raise ValueError("Invalid input: Expected a request event with content.")
 
+        # --- Construct the messages payload for Mistral API ---
+        # (Structure might need slight adjustment based on SDK predict method requirements)
         messages_payload = []
         if self.instruction:
+            # Check how the SDK expects system instructions (might be part of messages or separate param)
             messages_payload.append({"role": "system", "content": self.instruction})
 
         history = context.history or []
@@ -124,12 +109,11 @@ class MistralVertexAgent(BaseAgent):
                       role = "user"
                       text = event.content.parts[0].text
                  elif event.is_final_response() and event.content and event.content.parts:
-                      role = "assistant"
+                      role = "assistant" # Mistral uses 'assistant'
                       text = event.content.parts[0].text
 
                  if role and text:
                       messages_payload.append({"role": role, "content": text})
-
              except Exception as e:
                   logger.warning(f"[{self.name}] Error processing history event {type(event)}: {e}")
 
@@ -140,55 +124,69 @@ class MistralVertexAgent(BaseAgent):
             logger.error(f"[{self.name}] Could not extract text from current event: {e}", exc_info=True)
             raise ValueError("Invalid request content.")
 
+        # --- Prepare SDK Prediction Request ---
+        # The standard Vertex AI prediction format requires an 'instances' list.
+        # Wrap the messages payload inside the expected instance structure.
+        # The exact structure might vary, consult SDK docs or experiment.
+        # Assuming the container expects a "messages" key within the instance:
+        instances = [{"messages": messages_payload}]
+        parameters = self.model_parameters
+
+        # --- Make Asynchronous SDK Call ---
+        content_text = "[Agent encountered an error]"
         try:
-            access_token = await _get_gcloud_access_token()
-        except Exception as e:
-             raise RuntimeError(f"Authentication failed: {e}") from e
+            logger.info(f"[{self.name}] Sending request to Vertex AI Endpoint via SDK...")
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
-
-        payload = {
-            "messages": messages_payload,
-            **self.model_parameters
-        }
-
-        logger.info(f"[{self.name}] Sending rawPredict request to {self.predict_url}")
-
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                response = await client.post(
-                    url=self.predict_url,
-                    headers=headers,
-                    json=payload
+            # Define the synchronous prediction function to run in a thread
+            def sync_predict():
+                # Use the endpoint.predict method
+                prediction_response = self.endpoint.predict(
+                    instances=instances,
+                    parameters=parameters,
                 )
-                response.raise_for_status()
+                return prediction_response
 
-            except httpx.HTTPStatusError as e:
-                logger.error(f"[{self.name}] HTTP error during rawPredict call: {e.response.status_code} - {e.response.text}", exc_info=True)
-                raise RuntimeError(f"API call failed: {e.response.status_code} - Check logs for details.") from e
-            except httpx.RequestError as e:
-                 logger.error(f"[{self.name}] Request error during rawPredict call: {e}", exc_info=True)
-                 raise RuntimeError(f"API request failed: {e}") from e
-            except Exception as e:
-                logger.error(f"[{self.name}] Unexpected error during rawPredict HTTP call: {e}", exc_info=True)
-                raise RuntimeError(f"Unexpected error during API call: {e}") from e
+            # Run the synchronous SDK call in a separate thread
+            prediction_response = await asyncio.to_thread(sync_predict)
 
-        try:
-            response_dict = response.json()
-            content_text = response_dict.get("choices", [{}])[0].get("message", {}).get("content", "[No content found in response]")
-            if content_text == "[No content found in response]":
-                 logger.warning(f"[{self.name}] Could not extract content from response structure: {response_dict}")
+            logger.info(f"[{self.name}] Received response from Vertex AI SDK.")
 
-        except json.JSONDecodeError:
-            logger.error(f"[{self.name}] Failed to decode JSON response. Status: {response.status_code}. Response Text: {response.text}")
-            raise RuntimeError(f"Invalid JSON response from API (Status: {response.status_code}).")
-        except (IndexError, KeyError, TypeError) as e:
-             logger.error(f"[{self.name}] Failed to parse expected fields from response JSON: {e}. Response: {response_dict}", exc_info=True)
-             raise RuntimeError(f"Failed to parse response structure: {e}")
+            # --- Process SDK Response ---
+            # The response object structure depends on the model/endpoint.
+            # Inspect prediction_response.predictions structure.
+            # Assuming it returns a list of predictions, and each prediction is a dict
+            # with a 'content' key or similar based on Mistral's output format.
+            if prediction_response.predictions:
+                first_prediction = prediction_response.predictions[0]
+                if isinstance(first_prediction, dict):
+                     # Common patterns: 'content', 'choices'[0]['message']['content']
+                     if 'content' in first_prediction:
+                          content_text = first_prediction['content']
+                     elif 'choices' in first_prediction and \
+                          isinstance(first_prediction['choices'], list) and \
+                          len(first_prediction['choices']) > 0 and \
+                          isinstance(first_prediction['choices'][0], dict) and \
+                          'message' in first_prediction['choices'][0] and \
+                          isinstance(first_prediction['choices'][0]['message'], dict) and \
+                          'content' in first_prediction['choices'][0]['message']:
+                          content_text = first_prediction['choices'][0]['message']['content']
+                     else:
+                          logger.warning(f"[{self.name}] Could not find expected content structure in prediction: {first_prediction}")
+                          content_text = f"[Agent received unexpected response structure: {str(first_prediction)[:200]}]"
+                else:
+                     logger.warning(f"[{self.name}] Prediction format not a dict: {type(first_prediction)}")
+                     content_text = f"[Agent received unexpected response type: {type(first_prediction)}]"
+            else:
+                logger.warning(f"[{self.name}] Received empty predictions list from SDK.")
+                content_text = "[Agent received no predictions]"
 
-        logger.info(f"[{self.name}] Received response from Vertex AI rawPredict.")
+        except api_core_exceptions.GoogleAPIError as e:
+            logger.error(f"[{self.name}] Vertex AI SDK API error: {e}", exc_info=True)
+            raise RuntimeError(f"Vertex AI API call failed: {e}") from e
+        except Exception as e:
+            logger.error(f"[{self.name}] Unexpected error during SDK prediction: {e}", exc_info=True)
+            raise RuntimeError(f"Unexpected error during prediction: {e}") from e
+
+        # --- Yield Final Response ---
         final_content = Content(parts=[Part(text=content_text)])
         yield final_content
