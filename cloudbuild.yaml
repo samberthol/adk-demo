@@ -78,7 +78,7 @@ substitutions:
   _VM_DEFAULT_SUBNETWORK: ''
   _VM_DEFAULT_SERVICE_ACCOUNT: ''
   _MCP_SERVER_PORT: ''
-  _PROJECT_NUMBER: '' # Changed from _PROJECT_HASH
+  _PROJECT_NUMBER: ''
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
 
 options:
