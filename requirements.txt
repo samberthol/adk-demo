@@ -10,3 +10,4 @@ google-genai>=1.10.0
 nest-asyncio
 requests
 google-cloud-aiplatform
+httpx
