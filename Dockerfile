@@ -5,7 +5,6 @@ WORKDIR /app
 
 ENV PYTHONPATH=/app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
@@ -15,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir gunicorn ffmpeg-python google-generativeai
 
 COPY . .

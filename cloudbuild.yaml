@@ -1,7 +1,4 @@
 # cloudbuild.yaml
-# Builds TWO images: Python App (Streamlit) and Go MCP Server.
-# Deploys TWO Cloud Run services.
-
 steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: Build-Python-App
@@ -9,7 +6,8 @@ steps:
       - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_PYTHON_APP_IMAGE_NAME}:${SHORT_SHA}'
       - '--context=dir://.'
       - '--dockerfile=Dockerfile'
-      - '--cache=false'
+      - '--cache=true'
+      - '--cache-ttl=24h'
 
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: Build-MCP-Server
@@ -17,7 +15,8 @@ steps:
       - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_MCP_IMAGE_NAME}:${SHORT_SHA}'
       - '--context=dir://.'
       - '--dockerfile=Dockerfile.mcp'
-      - '--cache=false'
+      - '--cache=true'
+      - '--cache-ttl=24h'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-Streamlit
@@ -80,7 +79,6 @@ substitutions:
   _MCP_SERVER_PORT: ''
   _PROJECT_HASH: ''
   _ARTIFACT_REGISTRY_REPO: '${_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_REPO_ID}'
-
 
 options:
   logging: CLOUD_LOGGING_ONLY

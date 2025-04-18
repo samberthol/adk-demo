@@ -1,5 +1,4 @@
 # Dockerfile.mcp
-# --- Stage 1: Build github-mcp-server binary ---
 FROM golang:1.23 AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
@@ -13,7 +12,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build go mod download
 
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -ldflags="-s -w" -o github-mcp-server cmd/github-mcp-server/main.go
 
-# --- Stage 2: Setup Python runtime with mcpo and the Go binary ---
 FROM python:3.11-slim AS final
 
 WORKDIR /app
