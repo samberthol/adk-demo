@@ -1,4 +1,7 @@
 # cloudbuild.yaml
+# Builds TWO images: Python App (Streamlit) and Go MCP Server.
+# Deploys TWO Cloud Run services.
+
 steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: Build-Python-App
@@ -6,8 +9,7 @@ steps:
       - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_PYTHON_APP_IMAGE_NAME}:${SHORT_SHA}'
       - '--context=dir://.'
       - '--dockerfile=Dockerfile'
-      - '--cache=true'
-      - '--cache-ttl=24h'
+      - '--cache=false'
 
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: Build-MCP-Server
@@ -15,8 +17,7 @@ steps:
       - '--destination=${_ARTIFACT_REGISTRY_REPO}/${_MCP_IMAGE_NAME}:${SHORT_SHA}'
       - '--context=dir://.'
       - '--dockerfile=Dockerfile.mcp'
-      - '--cache=true'
-      - '--cache-ttl=24h'
+      - '--cache=false'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-Streamlit
@@ -31,7 +32,7 @@ steps:
       - '--platform=managed'
       - '--port=8080'
       - '--allow-unauthenticated'
-      - '--set-env-vars=^##^AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}'
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##AGENT_MODEL_NAME=${_AGENT_MODEL_NAME}##BQ_DEFAULT_LOCATION=${_BQ_DEFAULT_LOCATION}##VM_DEFAULT_ZONE=${_VM_DEFAULT_ZONE}##VM_DEFAULT_INSTANCE_NAME=${_VM_DEFAULT_INSTANCE_NAME}##VM_DEFAULT_MACHINE_TYPE=${_VM_DEFAULT_MACHINE_TYPE}##VM_DEFAULT_SOURCE_IMAGE=${_VM_DEFAULT_SOURCE_IMAGE}##VM_DEFAULT_DISK_SIZE_GB=${_VM_DEFAULT_DISK_SIZE_GB}##VM_DEFAULT_DISK_TYPE=${_VM_DEFAULT_DISK_TYPE}##VM_DEFAULT_SUBNETWORK=${_VM_DEFAULT_SUBNETWORK}##VM_DEFAULT_SERVICE_ACCOUNT=${_VM_DEFAULT_SERVICE_ACCOUNT}##GCP_PROJECT_ID=${_GCP_PROJECT_ID}##REGION=${_REGION}##MCP_SERVER_URL=https://${_SERVICE_NAME_MCP}-${_PROJECT_HASH}.${_REGION}.run.app##GITHUB_TOKEN=${_GITHUB_TOKEN}'
       - '--command=streamlit'
       - '--args=run,ui/app.py,--server.port=8080,--server.address=0.0.0.0,--server.headless=true'
       - '--memory=1Gi'
