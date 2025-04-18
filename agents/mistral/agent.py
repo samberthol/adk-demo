@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def _get_gcloud_access_token() -> str:
+    # ... (function remains the same) ...
     try:
         process = await asyncio.create_subprocess_shell(
             "gcloud auth print-access-token",
@@ -45,49 +46,66 @@ class MistralVertexAgent(BaseAgent):
     Custom ADK agent interacting with Mistral models on Vertex AI via rawPredict endpoint.
     Reads configuration from environment variables.
     """
+    # --- Add Class Attribute Declarations ---
+    # Declare the fields that the agent will use, allowing assignment in __init__
+    model_id: str
+    project_id: str
+    location: str
+    instruction: Optional[str] = None
+    # --- End of Declarations ---
+
+    # Keep name, description, etc. in __init__ signature if passed during instantiation
     def __init__(
         self,
-        # Removed model_id, project_id, location from signature
         name: str = "MistralVertexAgent",
         description: Optional[str] = None,
-        instruction: Optional[str] = None,
+        instruction: Optional[str] = None, # Keep instruction if it was being passed
         **kwargs,
     ):
+        # Initialize BaseAgent first (adjust if name/description/instruction are passed differently)
         super().__init__(name=name, description=description, **kwargs)
 
-        # Read configuration from environment variables within __init__
-        self.model_id = os.environ.get('MISTRAL_MODEL_ID')
-        self.project_id = os.environ.get('GCP_PROJECT_ID')
-        self.location = os.environ.get('REGION') # Use REGION for location
+        # Read configuration from environment variables
+        model_id_val = os.environ.get('MISTRAL_MODEL_ID')
+        project_id_val = os.environ.get('GCP_PROJECT_ID')
+        location_val = os.environ.get('REGION')
 
         # Validate required config
         missing_vars = []
-        if not self.model_id: missing_vars.append('MISTRAL_MODEL_ID')
-        if not self.project_id: missing_vars.append('GCP_PROJECT_ID')
-        if not self.location: missing_vars.append('REGION')
+        if not model_id_val: missing_vars.append('MISTRAL_MODEL_ID')
+        if not project_id_val: missing_vars.append('GCP_PROJECT_ID')
+        if not location_val: missing_vars.append('REGION')
 
         if missing_vars:
+            # This error will now be raised directly if env vars are missing (due to removed try/except in meta-agent)
             raise ValueError(f"MistralVertexAgent requires environment variables: {', '.join(missing_vars)}")
 
-        self.instruction = instruction
+        # --- Assign validated values to the declared fields ---
+        self.model_id = model_id_val
+        self.project_id = project_id_val
+        self.location = location_val
+        self.instruction = instruction # Assign instruction from parameter
 
+        # Construct the rawPredict URL using the assigned self attributes
         self.api_endpoint = f"https://{self.location}-aiplatform.googleapis.com"
         self.predict_url = (
             f"{self.api_endpoint}/v1/projects/{self.project_id}"
             f"/locations/{self.location}/publishers/mistralai/models/{self.model_id}:rawPredict"
         )
 
+        # Model parameters
         self.model_parameters = {
             "temperature": 0.7,
             "top_p": 1.0,
             "max_tokens": 1024,
         }
+        # Log success *after* all assignments and URL construction
         logger.info(f"[{self.name}] Initialized using environment config for model '{self.model_id}' at '{self.predict_url}'")
 
     async def run_async(
         self, context: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
-
+        # ... (run_async method remains the same) ...
         current_event = context.current_event
         if not current_event or not current_event.is_request() or not current_event.content:
              logger.warning(f"[{self.name}] Received invalid/non-request event type: {type(current_event)}")
