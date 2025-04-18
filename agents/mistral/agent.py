@@ -7,9 +7,8 @@ from typing import AsyncGenerator, List, Optional, Dict, Any
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
-from google.genai.types import Content, Part # Assuming Content/Part structure is still desired output
+from google.genai.types import Content, Part
 
-# Import the Vertex AI SDK
 try:
     import google.cloud.aiplatform as aiplatform
     from google.api_core import exceptions as api_core_exceptions
@@ -19,19 +18,18 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# No longer need _get_gcloud_access_token
-
 class MistralVertexAgent(BaseAgent):
     """
     Custom ADK agent interacting with Mistral models on Vertex AI via the Python SDK.
     Reads configuration from environment variables and uses ADC for authentication.
+    Passes validated config to superclass during initialization.
     """
-    # Declare fields expected by the class
+    # Declare the fields expected by the class/Pydantic/BaseAgent
     model_id: str
     project_id: str
     location: str
+    endpoint: aiplatform.Endpoint # Now explicitly required by validation
     instruction: Optional[str] = None
-    endpoint: aiplatform.Endpoint # Added endpoint attribute
 
     def __init__(
         self,
@@ -40,7 +38,7 @@ class MistralVertexAgent(BaseAgent):
         instruction: Optional[str] = None,
         **kwargs,
     ):
-        super().__init__(name=name, description=description, **kwargs)
+        # --- Read, validate, and prepare values BEFORE calling super().__init__ ---
 
         # Read configuration from environment variables
         model_id_val = os.environ.get('MISTRAL_MODEL_ID')
@@ -54,50 +52,64 @@ class MistralVertexAgent(BaseAgent):
         if not location_val: missing_vars.append('REGION')
 
         if missing_vars:
+            # This error will cause the instantiation to fail if try/except is removed
             raise ValueError(f"MistralVertexAgent requires environment variables: {', '.join(missing_vars)}")
 
-        # Assign validated values to the declared fields
-        self.model_id = model_id_val
-        self.project_id = project_id_val
-        self.location = location_val
-        self.instruction = instruction
-
+        endpoint_instance = None
         try:
             # Initialize the Vertex AI SDK. This uses ADC automatically.
-            aiplatform.init(project=self.project_id, location=self.location)
+            aiplatform.init(project=project_id_val, location=location_val)
 
             # Construct the endpoint name for the publisher model
-            endpoint_name = f"projects/{self.project_id}/locations/{self.location}/publishers/mistralai/models/{self.model_id}"
+            endpoint_name = f"projects/{project_id_val}/locations/{location_val}/publishers/mistralai/models/{model_id_val}"
 
             # Get an SDK client for the endpoint
-            self.endpoint = aiplatform.Endpoint(endpoint_name=endpoint_name)
+            endpoint_instance = aiplatform.Endpoint(endpoint_name=endpoint_name)
+            # Maybe add a check here? e.g., accessing endpoint_instance.display_name could force an API call to verify it exists
+            logger.debug(f"Successfully created Endpoint object for {endpoint_name}")
 
         except Exception as e:
-            logger.error(f"[{self.name}] Failed to initialize Vertex AI SDK or Endpoint: {e}", exc_info=True)
-            raise RuntimeError(f"Vertex AI SDK initialization failed: {e}") from e
+            logger.error(f"[{name}] Failed to initialize Vertex AI SDK or Endpoint: {e}", exc_info=True)
+            # Re-raise to ensure instantiation fails if SDK/Endpoint setup fails
+            raise RuntimeError(f"Vertex AI SDK/Endpoint initialization failed: {e}") from e
+
+        # --- Call super().__init__ passing the prepared values ---
+        super().__init__(
+            model_id=model_id_val,
+            project_id=project_id_val,
+            location=location_val,
+            endpoint=endpoint_instance, # Pass the created endpoint object
+            instruction=instruction,     # Pass instruction
+            name=name,
+            description=description,
+            **kwargs,
+        )
+        # --- End of super().__init__ call ---
+
+        # The fields (self.model_id, self.project_id, etc.) are now set by the superclass init
 
         # Model parameters (adjust names if SDK expects different ones)
         self.model_parameters = {
             "temperature": 0.7,
-            "topP": 1.0, # Check SDK docs, might be topP or top_p
-            "maxOutputTokens": 1024, # Check SDK docs, might be maxOutputTokens or max_tokens
+            "topP": 1.0,
+            "maxOutputTokens": 1024,
         }
-        logger.info(f"[{self.name}] Initialized using SDK for model '{self.model_id}' in '{self.location}'")
+        logger.info(f"[{self.name}] Initialized successfully using SDK for model '{self.model_id}' in '{self.location}'")
 
     async def run_async(
         self, context: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
+        # --- (run_async method remains the same as the previous SDK version) ---
+        # ... (code for preparing messages, calling endpoint.predict via asyncio.to_thread, parsing response) ...
 
         current_event = context.current_event
         if not current_event or not current_event.is_request() or not current_event.content:
              logger.warning(f"[{self.name}] Received invalid/non-request event type: {type(current_event)}")
              raise ValueError("Invalid input: Expected a request event with content.")
 
-        # --- Construct the messages payload for Mistral API ---
-        # (Structure might need slight adjustment based on SDK predict method requirements)
         messages_payload = []
+        # Use self.instruction which was set during __init__
         if self.instruction:
-            # Check how the SDK expects system instructions (might be part of messages or separate param)
             messages_payload.append({"role": "system", "content": self.instruction})
 
         history = context.history or []
@@ -109,7 +121,7 @@ class MistralVertexAgent(BaseAgent):
                       role = "user"
                       text = event.content.parts[0].text
                  elif event.is_final_response() and event.content and event.content.parts:
-                      role = "assistant" # Mistral uses 'assistant'
+                      role = "assistant"
                       text = event.content.parts[0].text
 
                  if role and text:
@@ -124,42 +136,28 @@ class MistralVertexAgent(BaseAgent):
             logger.error(f"[{self.name}] Could not extract text from current event: {e}", exc_info=True)
             raise ValueError("Invalid request content.")
 
-        # --- Prepare SDK Prediction Request ---
-        # The standard Vertex AI prediction format requires an 'instances' list.
-        # Wrap the messages payload inside the expected instance structure.
-        # The exact structure might vary, consult SDK docs or experiment.
-        # Assuming the container expects a "messages" key within the instance:
         instances = [{"messages": messages_payload}]
         parameters = self.model_parameters
 
-        # --- Make Asynchronous SDK Call ---
         content_text = "[Agent encountered an error]"
         try:
             logger.info(f"[{self.name}] Sending request to Vertex AI Endpoint via SDK...")
 
-            # Define the synchronous prediction function to run in a thread
             def sync_predict():
-                # Use the endpoint.predict method
+                # Use self.endpoint which was set during __init__
                 prediction_response = self.endpoint.predict(
                     instances=instances,
                     parameters=parameters,
                 )
                 return prediction_response
 
-            # Run the synchronous SDK call in a separate thread
             prediction_response = await asyncio.to_thread(sync_predict)
 
             logger.info(f"[{self.name}] Received response from Vertex AI SDK.")
 
-            # --- Process SDK Response ---
-            # The response object structure depends on the model/endpoint.
-            # Inspect prediction_response.predictions structure.
-            # Assuming it returns a list of predictions, and each prediction is a dict
-            # with a 'content' key or similar based on Mistral's output format.
             if prediction_response.predictions:
                 first_prediction = prediction_response.predictions[0]
                 if isinstance(first_prediction, dict):
-                     # Common patterns: 'content', 'choices'[0]['message']['content']
                      if 'content' in first_prediction:
                           content_text = first_prediction['content']
                      elif 'choices' in first_prediction and \
@@ -182,11 +180,15 @@ class MistralVertexAgent(BaseAgent):
 
         except api_core_exceptions.GoogleAPIError as e:
             logger.error(f"[{self.name}] Vertex AI SDK API error: {e}", exc_info=True)
-            raise RuntimeError(f"Vertex AI API call failed: {e}") from e
+            # Decide how to surface this error. Raising it will stop the agent turn.
+            # You could also yield an error message Content object.
+            # Let's yield an error message for now.
+            content_text = f"[Agent encountered API error: {e.message}]"
+            # raise RuntimeError(f"Vertex AI API call failed: {e}") from e
         except Exception as e:
             logger.error(f"[{self.name}] Unexpected error during SDK prediction: {e}", exc_info=True)
-            raise RuntimeError(f"Unexpected error during prediction: {e}") from e
+            content_text = f"[Agent encountered unexpected error: {type(e).__name__}]"
+            # raise RuntimeError(f"Unexpected error during prediction: {e}") from e
 
-        # --- Yield Final Response ---
         final_content = Content(parts=[Part(text=content_text)])
         yield final_content

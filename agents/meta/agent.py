@@ -1,6 +1,4 @@
 # agents/meta/agent.py
-# DEBUGGING VERSION - try/except removed
-
 import os
 import logging
 from google.adk.agents import LlmAgent
@@ -15,30 +13,34 @@ logger = logging.getLogger(__name__)
 # Get the model for the MetaAgent itself
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
-# Instantiate MistralVertexAgent (it will read its own env vars)
+# Instantiate MistralVertexAgent (it will read its own env vars and init SDK)
 mistral_agent = None
-
-# --- Debugging: Removed try/except block to see initialization errors directly ---
-# Instantiate without passing config parameters
-# If this fails, the application will now crash with a direct traceback
-mistral_agent = MistralVertexAgent(
-    name="MistralChatAgent", # Still useful to give it a distinct name
-    description="A conversational agent powered by Mistral via Vertex AI.",
-    instruction="You are a helpful conversational AI assistant based on Mistral models."
-)
-logger.info("Successfully instantiated MistralVertexAgent (MistralChatAgent)")
-# --- End of Debugging Change ---
+# --- Reinstate try/except block for robustness ---
+try:
+    # Instantiate without passing config parameters (Agent handles its own config)
+    mistral_agent = MistralVertexAgent(
+        name="MistralChatAgent",
+        description="A conversational agent powered by Mistral via Vertex AI.",
+        instruction="You are a helpful conversational AI assistant based on Mistral models."
+    )
+    # Log success only if instantiation passes __init__ checks
+    logger.info("Successfully instantiated MistralVertexAgent (MistralChatAgent)")
+except ValueError as e:
+    # Catch errors if required env vars are missing within the agent's __init__
+    logger.warning(f"Could not instantiate MistralVertexAgent - Missing Env Var(s): {e}")
+except RuntimeError as e:
+    # Catch errors related to SDK/Endpoint initialization inside __init__
+    logger.error(f"Could not instantiate MistralVertexAgent - SDK/Endpoint Init Error: {e}", exc_info=False) # exc_info=False to avoid duplicate traceback
+except Exception as e:
+    # Catch any other unexpected initialization errors
+    logger.error(f"Unexpected error instantiating MistralVertexAgent: {e}", exc_info=True)
+# --- End of reinstated try/except ---
 
 
 # Build the list of active sub-agents
 active_sub_agents = [resource_agent, data_science_agent, githubagent]
-# This check might be less relevant now as failure will likely crash above,
-# but keep it for consistency if we add try/except back later.
 if mistral_agent:
     active_sub_agents.append(mistral_agent)
-else:
-    # Log if it somehow didn't crash but agent is still None (shouldn't happen without try/except)
-    logger.error("Mistral agent is None after instantiation attempt without try/except block. This is unexpected.")
 
 
 # Define Meta Agent
