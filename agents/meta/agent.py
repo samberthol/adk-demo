@@ -15,19 +15,17 @@ agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 # Instantiate MistralVertexAgent (it will read its own env vars)
 mistral_agent = None
-try:
-    # Instantiate without passing config parameters
-    mistral_agent = MistralVertexAgent(
-        name="MistralChatAgent", # Still useful to give it a distinct name
-        description="A conversational agent powered by Mistral via Vertex AI.",
-        instruction="You are a helpful conversational AI assistant based on Mistral models."
-    )
-    logger.info("Successfully instantiated MistralVertexAgent (MistralChatAgent)")
-except ValueError as e:
-    # Catch errors if required env vars are missing within the agent's __init__
-    logger.warning(f"Could not instantiate MistralVertexAgent - {e}")
-except Exception as e:
-    logger.error(f"Unexpected error instantiating MistralVertexAgent: {e}", exc_info=True)
+
+# --- Debugging: Removed try/except block to see initialization errors directly ---
+# Instantiate without passing config parameters
+# If this fails, the application will now crash with a direct traceback
+mistral_agent = MistralVertexAgent(
+    name="MistralChatAgent", # Still useful to give it a distinct name
+    description="A conversational agent powered by Mistral via Vertex AI.",
+    instruction="You are a helpful conversational AI assistant based on Mistral models."
+)
+logger.info("Successfully instantiated MistralVertexAgent (MistralChatAgent)")
+# --- End of Debugging Change ---
 
 
 # Build the list of active sub-agents
