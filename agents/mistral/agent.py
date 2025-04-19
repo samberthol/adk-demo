@@ -22,7 +22,7 @@ class MistralVertexAgent(BaseAgent):
     """
     Custom ADK agent interacting with Mistral models on Vertex AI via the mistralai-gcp library.
     Reads configuration from environment variables and uses ADC for authentication.
-    Acts on the initial_user_content provided in the context.
+    Uses the first user event in the history as input.
     """
     instruction: Optional[str] = None
     model_name_version: Optional[str] = None
@@ -75,32 +75,38 @@ class MistralVertexAgent(BaseAgent):
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
 
-        # --- Get input from initial_user_content --- ## MODIFIED HERE ##
-        initial_content = ctx.initial_user_content
+        # --- Find the FIRST user event in history --- ## MODIFIED HERE ##
+        history = ctx.session.events or []
+        first_user_event = None
+        for event in history:
+            # Look for the first event authored by 'user'
+            if event and event.author == 'user':
+                first_user_event = event
+                break # Stop after finding the first one
 
-        if not initial_content:
-             logger.warning(f"[{self.name}] No initial_user_content found in context.")
-             yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: No input content found in context.]")]))
-             return
+        if not first_user_event or not first_user_event.content:
+            logger.warning(f"[{self.name}] No initial user event found in history.")
+            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not find initial user request in history.]")]))
+            return
 
         try:
-            # Extract text from the initial content's parts
-            if not initial_content.parts or not hasattr(initial_content.parts[0], 'text'):
-                 raise ValueError("Initial content part is missing text.")
-            current_text = initial_content.parts[0].text
+            # Extract text from the first user event's content parts
+            if not first_user_event.content.parts or not hasattr(first_user_event.content.parts[0], 'text'):
+                 raise ValueError("First user event content part is missing text.")
+            current_text = first_user_event.content.parts[0].text
         except (AttributeError, IndexError, ValueError) as e:
-            logger.error(f"[{self.name}] Could not extract text from initial_user_content: {e}", exc_info=True)
-            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not read input content.]")]))
+            logger.error(f"[{self.name}] Could not extract text from first user event: {e}", exc_info=True)
+            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not read initial user request content.]")]))
             return
         # --- End Input Handling Modification ---
 
-        # --- Construct the messages payload (No History Processing Needed) --- ## MODIFIED HERE ##
+        # --- Construct the messages payload (Still No History Processing) ---
+        # This agent acts only on the single input found above
         messages_payload = []
         if self.instruction:
              messages_payload.append({"role": "system", "content": self.instruction})
-        # Just add the current user message derived from initial_user_content
         messages_payload.append({"role": "user", "content": current_text})
-        # --- End Payload Construction Modification ---
+        # --- End Payload Construction ---
 
         # --- Make Asynchronous Call via mistralai-gcp Client ---
         content_text = "[Agent encountered an error]"
@@ -112,7 +118,7 @@ class MistralVertexAgent(BaseAgent):
             if not self.model_name_version:
                  raise RuntimeError("Model name was not initialized.")
 
-            logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}'...")
+            logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}' based on first user input...")
 
             call_params = {
                 "model": self.model_name_version,
