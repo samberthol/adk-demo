@@ -75,7 +75,7 @@ class MistralVertexAgent(BaseAgent):
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
 
-        # --- Get input from session state --- ## MODIFIED HERE ##
+        # --- Get input from session state --- ## Reads state key set by MetaAgent callback ##
         state_key = 'mistral_input'
         current_text = ctx.session.state.get(state_key)
 
@@ -87,7 +87,8 @@ class MistralVertexAgent(BaseAgent):
             # Log the input being used
             logger.info(f"[{self.name}] Received input from state: '{current_text[:50]}...'")
             # Signal state change to remove the key after reading (important!)
-            ctx.add_state_delta({state_key: None})
+            # Use add_state_delta on the InvocationContext (ctx)
+            ctx.add_state_delta({state_key: None}) # Correct way to modify state via ctx
         # --- End Input Handling Modification ---
 
 
