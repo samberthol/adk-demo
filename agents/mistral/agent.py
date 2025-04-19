@@ -24,11 +24,10 @@ class MistralVertexAgent(BaseAgent):
     Custom ADK agent interacting with Mistral models on Vertex AI via the mistralai-gcp library.
     Reads configuration from environment variables and uses ADC for authentication.
     """
-    # === REMOVE THE CLASS-LEVEL TYPE HINT HERE ===
-    # client: MistralGoogleCloud # Store the client
-    # =============================================
-
-    instruction: Optional[str] = None # Keep this one from BaseAgent
+    instruction: Optional[str] = None
+    # === ADD CLASS-LEVEL DECLARATION HERE ===
+    model_name_version: Optional[str] = None
+    # ========================================
 
     def __init__(
         self,
@@ -40,7 +39,7 @@ class MistralVertexAgent(BaseAgent):
         # Initialize BaseAgent
         super().__init__(name=name, description=description, instruction=instruction, **kwargs)
 
-        # Read configuration from environment variables
+        # Assign the value here
         self.model_name_version = os.environ.get('MISTRAL_MODEL_ID') # e.g., mistral-small-2503
         project_id_val = os.environ.get('GCP_PROJECT_ID')
         location_val = os.environ.get('REGION')
@@ -48,6 +47,7 @@ class MistralVertexAgent(BaseAgent):
 
         # Validate required config
         missing_vars = []
+        # Check the instance variable after assignment
         if not self.model_name_version: missing_vars.append('MISTRAL_MODEL_ID')
         if not project_id_val: missing_vars.append('GCP_PROJECT_ID')
         if not location_val: missing_vars.append('REGION')
@@ -58,8 +58,6 @@ class MistralVertexAgent(BaseAgent):
 
         try:
             # Initialize the MistralGoogleCloud client
-            # It should use Application Default Credentials (ADC) automatically
-            # ASSIGN SELF.CLIENT HERE - Python handles dynamic typing
             self.client = MistralGoogleCloud(
                 project_id=project_id_val,
                 region=location_val
@@ -77,6 +75,7 @@ class MistralVertexAgent(BaseAgent):
             "top_p": 1.0, # Check docs if different name needed
             "max_tokens": 1024, # Check docs if different name needed
         }
+        # Log using the instance variable
         logger.info(f"[{self.name}] Configured to use model '{self.model_name_version}'")
 
     # run_async method remains the same...
@@ -90,12 +89,8 @@ class MistralVertexAgent(BaseAgent):
              raise ValueError("Invalid input: Expected a request event with content.")
 
         # --- Construct the messages payload ---
-        # (The format [{role: 'user', content: '...'}, ...] is standard)
         messages_payload = []
-        # Use self.instruction from BaseAgent if set
         if self.instruction:
-             # System prompt might need specific handling depending on the client
-             # Let's assume it's just another message for now
              messages_payload.append({"role": "system", "content": self.instruction})
 
         history = context.history or []
@@ -127,28 +122,21 @@ class MistralVertexAgent(BaseAgent):
         try:
             logger.info(f"[{self.name}] Sending request via MistralGoogleCloud client...")
 
-            # Prepare parameters, filtering out None values if necessary
             call_params = {
+                # Access the instance variable here
                 "model": self.model_name_version,
                 "messages": messages_payload,
-                **self.model_parameters # Spread the parameters dict
+                **self.model_parameters
             }
 
-            # Define the synchronous prediction function
             def sync_predict():
-                 # Use the client.chat.complete method (or just client.complete if appropriate)
-                 # Check mistralai-gcp docs for exact method structure
                  response = self.client.chat.complete(**call_params)
                  return response
 
-            # Run the synchronous SDK call in a separate thread
-            # Alternatively, check if mistralai-gcp has an async client or methods like complete_async
             response = await asyncio.to_thread(sync_predict)
 
             logger.info(f"[{self.name}] Received response from MistralGoogleCloud client.")
 
-            # --- Process mistralai-gcp Response ---
-            # Structure is likely similar to native Mistral API: response.choices[0].message.content
             if response.choices:
                  content_text = response.choices[0].message.content
             else:
@@ -156,10 +144,8 @@ class MistralVertexAgent(BaseAgent):
                  content_text = "[Agent received no response choices]"
 
         except Exception as e:
-            # Catch potential errors from the mistralai-gcp client or ADC
             logger.error(f"[{self.name}] Error during MistralGoogleCloud API call: {e}", exc_info=True)
             content_text = f"[Agent encountered API error: {type(e).__name__}]"
-            # Optionally re-raise: raise RuntimeError(f"Mistral API call failed: {e}") from e
 
         # --- Yield Final Response ---
         final_content = Content(parts=[Part(text=content_text)])
