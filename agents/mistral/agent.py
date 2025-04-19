@@ -24,14 +24,11 @@ class MistralVertexAgent(BaseAgent):
     Custom ADK agent interacting with Mistral models on Vertex AI via the mistralai-gcp library.
     Reads configuration from environment variables and uses ADC for authentication.
     """
-    # Declare fields needed for BaseAgent/Pydantic validation if any
-    # We might not need to explicitly declare model_id etc. if not passing to super()
-    # Let's remove them for now unless BaseAgent specifically requires them
-    # model_id: str
-    # project_id: str
-    # location: str
-    instruction: Optional[str] = None
-    client: MistralGoogleCloud # Store the client
+    # === REMOVE THE CLASS-LEVEL TYPE HINT HERE ===
+    # client: MistralGoogleCloud # Store the client
+    # =============================================
+
+    instruction: Optional[str] = None # Keep this one from BaseAgent
 
     def __init__(
         self,
@@ -56,11 +53,13 @@ class MistralVertexAgent(BaseAgent):
         if not location_val: missing_vars.append('REGION')
 
         if missing_vars:
+            # Raise the error here so it's caught by the meta-agent's try/except
             raise ValueError(f"MistralVertexAgent requires environment variables: {', '.join(missing_vars)}")
 
         try:
             # Initialize the MistralGoogleCloud client
             # It should use Application Default Credentials (ADC) automatically
+            # ASSIGN SELF.CLIENT HERE - Python handles dynamic typing
             self.client = MistralGoogleCloud(
                 project_id=project_id_val,
                 region=location_val
@@ -69,6 +68,7 @@ class MistralVertexAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"[{self.name}] Failed to initialize MistralGoogleCloud client: {e}", exc_info=True)
+            # Re-raise as RuntimeError to be caught by meta-agent's specific handling
             raise RuntimeError(f"MistralGoogleCloud client initialization failed: {e}") from e
 
         # Model parameters (use names expected by mistralai-gcp client)
@@ -79,6 +79,7 @@ class MistralVertexAgent(BaseAgent):
         }
         logger.info(f"[{self.name}] Configured to use model '{self.model_name_version}'")
 
+    # run_async method remains the same...
     async def run_async(
         self, context: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
