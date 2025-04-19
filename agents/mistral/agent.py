@@ -22,6 +22,7 @@ class MistralVertexAgent(BaseAgent):
     """
     Custom ADK agent interacting with Mistral models on Vertex AI via the mistralai-gcp library.
     Reads configuration from environment variables and uses ADC for authentication.
+    Acts on the initial_user_content provided in the context.
     """
     instruction: Optional[str] = None
     model_name_version: Optional[str] = None
@@ -74,53 +75,32 @@ class MistralVertexAgent(BaseAgent):
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
 
-        # Get history from context.session.events
-        history = ctx.session.events or []
-        # Get the latest event which should be the user's request
-        latest_event = history[-1] if history else None
+        # --- Get input from initial_user_content --- ## MODIFIED HERE ##
+        initial_content = ctx.initial_user_content
 
-        if not latest_event or latest_event.author != 'user' or not latest_event.content:
-            logger.warning(f"[{self.name}] No valid user request found at the end of history.")
-            # Yield an Event containing the error content
-            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not find user request in context.]")]))
-            return
+        if not initial_content:
+             logger.warning(f"[{self.name}] No initial_user_content found in context.")
+             yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: No input content found in context.]")]))
+             return
 
-        # Extract text from the latest event's content parts
         try:
-            if not latest_event.content.parts or not hasattr(latest_event.content.parts[0], 'text'):
-                 raise ValueError("Latest event content part is missing text.")
-            current_text = latest_event.content.parts[0].text
+            # Extract text from the initial content's parts
+            if not initial_content.parts or not hasattr(initial_content.parts[0], 'text'):
+                 raise ValueError("Initial content part is missing text.")
+            current_text = initial_content.parts[0].text
         except (AttributeError, IndexError, ValueError) as e:
-            logger.error(f"[{self.name}] Could not extract text from latest history event: {e}", exc_info=True)
-            # Yield an Event containing the error content
-            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not read user request content.]")]))
+            logger.error(f"[{self.name}] Could not extract text from initial_user_content: {e}", exc_info=True)
+            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not read input content.]")]))
             return
+        # --- End Input Handling Modification ---
 
-        # --- Construct the messages payload ---
+        # --- Construct the messages payload (No History Processing Needed) --- ## MODIFIED HERE ##
         messages_payload = []
         if self.instruction:
              messages_payload.append({"role": "system", "content": self.instruction})
-
-        # Process history *before* the latest event
-        processed_history = history[:-1]
-        for event in processed_history[-10:]:
-             try:
-                 role = None
-                 text = None
-                 if event.author == 'user' and event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
-                      role = "user"
-                      text = event.content.parts[0].text
-                 elif event.author == self.name and event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
-                      role = "assistant"
-                      text = event.content.parts[0].text
-
-                 if role and text:
-                      messages_payload.append({"role": role, "content": text})
-             except Exception as e:
-                  logger.warning(f"[{self.name}] Error processing history event ID {event.id if event else 'N/A'} (Author: {event.author if event else 'N/A'}): {e}")
-
-        # Add the current user message extracted from the latest event
+        # Just add the current user message derived from initial_user_content
         messages_payload.append({"role": "user", "content": current_text})
+        # --- End Payload Construction Modification ---
 
         # --- Make Asynchronous Call via mistralai-gcp Client ---
         content_text = "[Agent encountered an error]"
@@ -158,11 +138,9 @@ class MistralVertexAgent(BaseAgent):
             logger.error(f"[{self.name}] Error during MistralGoogleCloud API call: {e}", exc_info=True)
             content_text = f"[Agent encountered API error: {type(e).__name__}]"
 
-        # --- Yield Final Response as an Event --- ## MODIFIED HERE ##
+        # --- Yield Final Response as an Event ---
         final_event = Event(
-            author=self.name, # Attribute the response to this agent
+            author=self.name,
             content=Content(parts=[Part(text=content_text)])
-            # `partial=False` is the default for Event, indicating a complete message
         )
         yield final_event
-        # --- End Modification ---
