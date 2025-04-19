@@ -13,3 +13,4 @@ google-cloud-aiplatform
 httpx
 google-cloud-aiplatform>=1.49.0
 mistralai[gcp]
+litellm

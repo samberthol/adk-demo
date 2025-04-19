@@ -3,18 +3,19 @@ import os
 import logging
 from typing import Optional
 
-# Corrected import for LlmAgent and CallbackContext
+# Import LlmAgent and LiteLlm wrapper
 from google.adk.agents import LlmAgent
-from google.adk.agents.callback_context import CallbackContext
-# Import Content/Part/FunctionCall for type checking in callback
-# Import LlmResponse for the callback signature
-from google.genai.types import Content, Part, FunctionCall
-from google.adk.models import LlmResponse # <-- IMPORT LlmResponse
+from google.adk.models.lite_llm import LiteLlm # <-- Import LiteLlm
+# Remove imports related to old custom agent or callbacks
+# from google.adk.agents.callback_context import CallbackContext
+# from google.genai.types import Content, Part, FunctionCall
+# from google.adk.models import LlmResponse
+# from agents.mistral.agent import MistralVertexAgent # <-- Remove old import
 
+# Import other sub-agents
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
-from agents.mistral.agent import MistralVertexAgent # Import Mistral Agent
 
 logger = logging.getLogger(__name__)
 
@@ -24,73 +25,31 @@ agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 # Define the target agent name
 MISTRAL_AGENT_NAME = "MistralChatAgent"
 
-# --- Callback Function ---
-def _save_input_for_mistral_agent(
-    callback_context: CallbackContext, llm_response: LlmResponse # <-- CORRECT Type Hint
-) -> None:
-    """
-    After model callback to save user input to state if transferring to Mistral.
-    """
-    transfer_to_mistral = False
-    # Access parts via llm_response.content.parts
-    if llm_response and llm_response.content and llm_response.content.parts: # <-- CORRECT Access
-        part_content = llm_response.content.parts[0] # Get the first part
-        func_calls = []
-        # Handle cases where function_call might be single obj or list
-        if hasattr(part_content, 'function_call'):
-             call_data = getattr(part_content, 'function_call')
-             if isinstance(call_data, FunctionCall):
-                 func_calls = [call_data]
-             elif isinstance(call_data, list):
-                 func_calls = call_data
-
-        for call in func_calls:
-            if (
-                isinstance(call, FunctionCall) and
-                getattr(call, 'name', '') == 'transfer_to_agent' and
-                isinstance(getattr(call, 'args', None), dict) and
-                call.args.get('agent_name') == MISTRAL_AGENT_NAME
-            ):
-                transfer_to_mistral = True
-                break
-
-    if transfer_to_mistral:
-        logger.info(f"[{callback_context.agent_name}] LLM decided to transfer to {MISTRAL_AGENT_NAME}. Saving preceding user input to state.")
-        last_user_event = None
-        history = callback_context.session.events or []
-        for event in reversed(history):
-            if event and event.author == 'user' and event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
-                last_user_event = event
-                break
-
-        if last_user_event:
-            try:
-                user_text = last_user_event.content.parts[0].text
-                if user_text:
-                    callback_context.add_state_delta({'mistral_input': user_text})
-                    logger.info(f"[{callback_context.agent_name}] Saved input for {MISTRAL_AGENT_NAME}: '{user_text[:50]}...'")
-                else:
-                     logger.warning(f"[{callback_context.agent_name}] Preceding user event had no text content.")
-            except Exception as e:
-                 logger.error(f"[{callback_context.agent_name}] Failed to extract text from preceding user event: {e}", exc_info=True)
-        else:
-            logger.warning(f"[{callback_context.agent_name}] Could not find preceding user event in history to save for {MISTRAL_AGENT_NAME}.")
-
-# --- Mistral Agent Instantiation ---
+# --- Instantiate Mistral Agent using LlmAgent and LiteLlm ---
 mistral_agent = None
-try:
-    mistral_agent = MistralVertexAgent(
-        name=MISTRAL_AGENT_NAME,
-        description="A conversational agent powered by Mistral via Vertex AI.",
-        instruction="You are a helpful conversational AI assistant based on Mistral models."
-    )
-    logger.info(f"Successfully instantiated MistralVertexAgent ({MISTRAL_AGENT_NAME})")
-except ValueError as e:
-    logger.warning(f"Could not instantiate MistralVertexAgent - Missing Env Var(s): {e}")
-except RuntimeError as e:
-    logger.error(f"Could not instantiate MistralVertexAgent - SDK/Endpoint Init Error: {e}", exc_info=False)
-except Exception as e:
-    logger.error(f"Unexpected error instantiating MistralVertexAgent: {e}", exc_info=True)
+mistral_model_id = os.environ.get('MISTRAL_MODEL_ID') # e.g., mistral-small-2503
+
+if mistral_model_id:
+    # Construct the LiteLLM model string for Vertex AI
+    # Format: vertex_ai/<your-mistral-model-id>
+    litellm_model_string = f"vertex_ai/{mistral_model_id}"
+    logger.info(f"Configuring {MISTRAL_AGENT_NAME} using LiteLlm with model: {litellm_model_string}")
+    try:
+        mistral_agent = LlmAgent(
+            name=MISTRAL_AGENT_NAME,
+            # Pass LiteLlm instance to model parameter
+            model=LiteLlm(model=litellm_model_string),
+            description="A conversational agent powered by Mistral via Vertex AI (using LiteLLM).",
+            instruction="You are a helpful conversational AI assistant based on Mistral models. Respond directly to the user's query."
+            # LlmAgent handles interaction, no need for custom _run_async_impl
+            # No callbacks needed for this approach
+        )
+        logger.info(f"Successfully configured {MISTRAL_AGENT_NAME} as LlmAgent with LiteLlm.")
+    except Exception as e:
+        # Catch potential errors during LlmAgent/LiteLlm init
+        logger.error(f"Failed to configure {MISTRAL_AGENT_NAME} with LiteLlm: {e}", exc_info=True)
+else:
+    logger.warning(f"MISTRAL_MODEL_ID environment variable not set. {MISTRAL_AGENT_NAME} will not be available.")
 
 
 # --- Build Active Sub-Agents List ---
@@ -101,7 +60,7 @@ else:
     logger.warning(f"{MISTRAL_AGENT_NAME} could not be initialized and will not be available.")
 
 
-# --- Define Meta Agent (with callback) ---
+# --- Define Meta Agent ---
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,
@@ -115,5 +74,5 @@ meta_agent = LlmAgent(
         "Clearly present the results from the specialist agents or the chat agent back to the user."
     ),
     sub_agents=active_sub_agents,
-    after_model_callback=_save_input_for_mistral_agent,
+    # No callback needed now
 )
