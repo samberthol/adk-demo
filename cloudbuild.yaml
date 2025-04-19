@@ -38,7 +38,7 @@ steps:
       - '--memory=1Gi'
       - '--quiet'
     waitFor: ['Build-Python-App', 'Build-MCP-Server']
-
+ 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: Deploy-MCP-Server
     entrypoint: gcloud
