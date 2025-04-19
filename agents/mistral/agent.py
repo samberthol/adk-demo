@@ -12,7 +12,6 @@ from google.genai.types import Content, Part
 # Import the Mistral GCP client library
 try:
     from mistralai_gcp import MistralGoogleCloud
-    # You might need specific exception types from this library if available
 except ImportError:
     raise ImportError("mistralai-gcp is required for MistralVertexAgent. Please install it.")
 
@@ -27,9 +26,7 @@ class MistralVertexAgent(BaseAgent):
     instruction: Optional[str] = None
     model_name_version: Optional[str] = None
     client: Optional[MistralGoogleCloud] = None
-    # === DECLARE AND INITIALIZE model_parameters HERE ===
     model_parameters: Optional[Dict[str, Any]] = None
-    # ====================================================
 
     def __init__(
         self,
@@ -42,7 +39,7 @@ class MistralVertexAgent(BaseAgent):
         super().__init__(name=name, description=description, instruction=instruction, **kwargs)
 
         # Assign model_name_version here
-        self.model_name_version = os.environ.get('MISTRAL_MODEL_ID') # e.g., mistral-small-2503
+        self.model_name_version = os.environ.get('MISTRAL_MODEL_ID')
         project_id_val = os.environ.get('GCP_PROJECT_ID')
         location_val = os.environ.get('REGION')
 
@@ -64,7 +61,7 @@ class MistralVertexAgent(BaseAgent):
             logger.error(f"[{self.name}] Failed to initialize MistralGoogleCloud client: {e}", exc_info=True)
             raise RuntimeError(f"MistralGoogleCloud client initialization failed: {e}") from e
 
-        # Assign model parameters to the existing attribute
+        # Assign model parameters
         self.model_parameters = {
             "temperature": 0.7,
             "top_p": 1.0,
@@ -72,55 +69,71 @@ class MistralVertexAgent(BaseAgent):
         }
         logger.info(f"[{self.name}] Configured to use model '{self.model_name_version}'")
 
-    async def run_async(
-        self, context: InvocationContext
+    # Implement _run_async_impl instead of run_async
+    async def _run_async_impl(
+        self, ctx: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
 
-        current_event = context.current_event
-        if not current_event or not current_event.is_request() or not current_event.content:
-             logger.warning(f"[{self.name}] Received invalid/non-request event type: {type(current_event)}")
-             raise ValueError("Invalid input: Expected a request event with content.")
+        # Get history from context
+        history = ctx.history or []
+        # Get the latest event which should be the user's request
+        latest_event = history[-1] if history else None
+
+        if not latest_event or not latest_event.is_request() or not latest_event.content:
+            logger.warning(f"[{self.name}] No valid user request found at the end of history.")
+            # Handle appropriately - yield error content?
+            yield Content(parts=[Part(text="[Agent Error: Could not find user request in context.]")])
+            return # Stop processing if no valid input
+
+        # Extract text from the latest event's content parts
+        try:
+            current_text = latest_event.content.parts[0].text
+        except (AttributeError, IndexError) as e:
+            logger.error(f"[{self.name}] Could not extract text from latest history event: {e}", exc_info=True)
+            yield Content(parts=[Part(text="[Agent Error: Could not read user request content.]")])
+            return # Stop processing
 
         # --- Construct the messages payload ---
         messages_payload = []
         if self.instruction:
              messages_payload.append({"role": "system", "content": self.instruction})
 
-        history = context.history or []
-        for event in history[-10:]:
+        # Process history *before* the latest event
+        processed_history = history[:-1] # Exclude the latest event
+        for event in processed_history[-10:]: # Optional: limit history length
              try:
                  role = None
                  text = None
+                 # Convert previous request events to 'user' role
                  if event.is_request() and event.content and event.content.parts:
                       role = "user"
                       text = event.content.parts[0].text
+                 # Convert previous response events to 'assistant' role
                  elif event.is_final_response() and event.content and event.content.parts:
                       role = "assistant"
                       text = event.content.parts[0].text
+                 # Add other roles/event types if needed
 
                  if role and text:
                       messages_payload.append({"role": role, "content": text})
              except Exception as e:
                   logger.warning(f"[{self.name}] Error processing history event {type(event)}: {e}")
 
-        try:
-            current_text = current_event.content.parts[0].text
-            messages_payload.append({"role": "user", "content": current_text})
-        except (AttributeError, IndexError) as e:
-            logger.error(f"[{self.name}] Could not extract text from current event: {e}", exc_info=True)
-            raise ValueError("Invalid request content.")
+        # Add the current user message extracted from the latest event
+        messages_payload.append({"role": "user", "content": current_text})
 
         # --- Make Asynchronous Call via mistralai-gcp Client ---
         content_text = "[Agent encountered an error]"
         try:
-            # Check if client and parameters were successfully initialized before using them
             if not self.client:
                 raise RuntimeError("Mistral client was not initialized.")
             if not self.model_parameters:
                  raise RuntimeError("Model parameters were not initialized.")
+            if not self.model_name_version:
+                 raise RuntimeError("Model name was not initialized.")
 
 
-            logger.info(f"[{self.name}] Sending request via MistralGoogleCloud client...")
+            logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}'...")
 
             call_params = {
                 "model": self.model_name_version,
@@ -128,14 +141,17 @@ class MistralVertexAgent(BaseAgent):
                 **self.model_parameters
             }
 
+            # Define the synchronous prediction function to run in a thread
             def sync_predict():
                  response = self.client.chat.complete(**call_params)
                  return response
 
+            # Run the synchronous SDK call in a separate thread
             response = await asyncio.to_thread(sync_predict)
 
             logger.info(f"[{self.name}] Received response from MistralGoogleCloud client.")
 
+            # Process response
             if response.choices:
                  content_text = response.choices[0].message.content
             else:
@@ -147,5 +163,6 @@ class MistralVertexAgent(BaseAgent):
             content_text = f"[Agent encountered API error: {type(e).__name__}]"
 
         # --- Yield Final Response ---
+        # ADK expects Content or Event. Yielding Content implies a final response.
         final_content = Content(parts=[Part(text=content_text)])
         yield final_content
