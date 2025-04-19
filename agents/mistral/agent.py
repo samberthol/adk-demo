@@ -25,9 +25,9 @@ class MistralVertexAgent(BaseAgent):
     Reads configuration from environment variables and uses ADC for authentication.
     """
     instruction: Optional[str] = None
-    # === ADD CLASS-LEVEL DECLARATION HERE ===
     model_name_version: Optional[str] = None
-    # ========================================
+    # Declare and initialize client to None
+    client: Optional[MistralGoogleCloud] = None
 
     def __init__(
         self,
@@ -39,46 +39,41 @@ class MistralVertexAgent(BaseAgent):
         # Initialize BaseAgent
         super().__init__(name=name, description=description, instruction=instruction, **kwargs)
 
-        # Assign the value here
+        # Assign model_name_version here
         self.model_name_version = os.environ.get('MISTRAL_MODEL_ID') # e.g., mistral-small-2503
         project_id_val = os.environ.get('GCP_PROJECT_ID')
         location_val = os.environ.get('REGION')
-        # self.instruction is handled by super init now if passed
 
-        # Validate required config
+        # Validate required config - KEEP THIS to ensure env vars are set for ADC
         missing_vars = []
-        # Check the instance variable after assignment
         if not self.model_name_version: missing_vars.append('MISTRAL_MODEL_ID')
         if not project_id_val: missing_vars.append('GCP_PROJECT_ID')
         if not location_val: missing_vars.append('REGION')
 
         if missing_vars:
-            # Raise the error here so it's caught by the meta-agent's try/except
             raise ValueError(f"MistralVertexAgent requires environment variables: {', '.join(missing_vars)}")
 
         try:
-            # Initialize the MistralGoogleCloud client
-            self.client = MistralGoogleCloud(
-                project_id=project_id_val,
-                region=location_val
-            )
-            logger.info(f"[{self.name}] Initialized MistralGoogleCloud client for project '{project_id_val}' in region '{location_val}'")
+            # Initialize WITHOUT explicit project_id and region
+            # Relies on environment context (ADC, REGION env var)
+            self.client = MistralGoogleCloud()
+            # Adjust log message slightly
+            logger.info(f"[{self.name}] Initialized MistralGoogleCloud client implicitly using environment.")
 
         except Exception as e:
+            # Log the error, including the stack trace for better debugging
             logger.error(f"[{self.name}] Failed to initialize MistralGoogleCloud client: {e}", exc_info=True)
             # Re-raise as RuntimeError to be caught by meta-agent's specific handling
             raise RuntimeError(f"MistralGoogleCloud client initialization failed: {e}") from e
 
-        # Model parameters (use names expected by mistralai-gcp client)
+        # Model parameters
         self.model_parameters = {
             "temperature": 0.7,
-            "top_p": 1.0, # Check docs if different name needed
-            "max_tokens": 1024, # Check docs if different name needed
+            "top_p": 1.0,
+            "max_tokens": 1024,
         }
-        # Log using the instance variable
         logger.info(f"[{self.name}] Configured to use model '{self.model_name_version}'")
 
-    # run_async method remains the same...
     async def run_async(
         self, context: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
@@ -120,10 +115,13 @@ class MistralVertexAgent(BaseAgent):
         # --- Make Asynchronous Call via mistralai-gcp Client ---
         content_text = "[Agent encountered an error]"
         try:
+            # Check if client was successfully initialized before using it
+            if not self.client:
+                raise RuntimeError("Mistral client was not initialized.")
+
             logger.info(f"[{self.name}] Sending request via MistralGoogleCloud client...")
 
             call_params = {
-                # Access the instance variable here
                 "model": self.model_name_version,
                 "messages": messages_payload,
                 **self.model_parameters
