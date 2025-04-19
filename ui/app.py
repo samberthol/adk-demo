@@ -1,14 +1,11 @@
-# ui/app.py
+# adk-demo/ui/app.py
 import streamlit as st
 import logging
 import time
 import os
-import sys
-from pathlib import Path
 import asyncio
 import nest_asyncio
 
-# --- Constants ---
 APP_NAME = "gcp_multi_agent_demo_streamlit"
 USER_ID = f"st_user_{APP_NAME}"
 ADK_SESSION_ID_KEY = f'adk_session_id_{APP_NAME}'
@@ -16,14 +13,12 @@ ADK_SERVICE_KEY = f'adk_service_{APP_NAME}'
 ADK_RUNNER_KEY = f'adk_runner_{APP_NAME}'
 MESSAGE_HISTORY_KEY = f"messages_{APP_NAME}"
 
-# --- Page Configuration ---
 st.set_page_config(
     layout="wide",
     page_title="GCP Agent Hub",
     page_icon="☁️"
     )
 
-# --- ADK Imports ---
 try:
     from agents.meta.agent import meta_agent
     from google.adk.runners import Runner
@@ -34,12 +29,10 @@ except ImportError as e:
     st.error("Ensure project structure and requirements are correct. App cannot start.")
     st.stop()
 
-# --- Logging Configuration ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
-logger = logging.getLogger("streamlit_app")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 logger.info("Streamlit App Logger Initialized.")
 
-# --- Apply nest_asyncio ---
 try:
     nest_asyncio.apply()
     logger.info("nest_asyncio applied successfully.")
@@ -47,18 +40,15 @@ except RuntimeError as e:
     if "cannot apply nest_asyncio" not in str(e):
          logger.error(f"Error applying nest_asyncio: {e}")
 
-# --- ADK Initialization & Session Management ---
 def get_runner_and_session_id():
-    """
-    Initializes or retrieves the ADK Runner and Session ID using Streamlit's session state.
-    Handles creation and validation of the ADK session.
-    """
     if ADK_SERVICE_KEY not in st.session_state:
         logger.info("--- ADK Init: Creating new InMemorySessionService in st.session_state.")
         st.session_state[ADK_SERVICE_KEY] = InMemorySessionService()
 
     if ADK_RUNNER_KEY not in st.session_state:
         logger.info("--- ADK Init: Creating new Runner in st.session_state.")
+        if 'meta_agent' not in globals():
+             raise NameError("Fatal Error: meta_agent not imported or defined before Runner initialization.")
         st.session_state[ADK_RUNNER_KEY] = Runner(
             agent=meta_agent,
             app_name=APP_NAME,
@@ -95,54 +85,46 @@ def get_runner_and_session_id():
 
     return runner, session_id
 
-# --- Async Runner Function ---
-async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> str:
-    """
-    Runs a turn of the ADK agent asynchronously.
-    """
+async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> tuple[str, str]:
     logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id} ---")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
+    final_response_author = "assistant"
     start_time = time.time()
 
     try:
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-            if event.is_final_response():
-                if event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
-                    final_response_text = event.content.parts[0].text
-                else:
-                    final_response_text = "[Agent finished with no text output]"
-                break
+            if event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
+                 final_response_text = event.content.parts[0].text
+                 final_response_author = event.author or "assistant"
+
     except Exception as e:
         if "Session not found" in str(e):
              logger.error(f"--- ADK Run Async: Confirmed 'Session not found' error for {session_id} / {user_id}")
              final_response_text = "Error: Agent session expired or was lost. Please try clearing the session and starting again."
+             final_response_author = "error"
         else:
             logger.exception("--- ADK Run Async: !! EXCEPTION during agent execution:")
             final_response_text = f"Sorry, an error occurred during agent execution: {e}"
+            final_response_author = "error"
     finally:
         end_time = time.time()
         duration = end_time - start_time
-        logger.info(f"--- ADK Run Async: Turn execution completed in {duration:.2f} seconds.")
+        logger.info(f"--- ADK Run Async: Turn execution completed in {duration:.2f} seconds. Final author: {final_response_author}")
 
-    return final_response_text
+    return final_response_text, final_response_author
 
-# --- Sync Wrapper ---
-def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> str:
-    """
-    Synchronous wrapper to call the async ADK runner function using asyncio.run.
-    Handles potential runtime errors during async execution.
-    """
+def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> tuple[str, str]:
     try:
-        return asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
+        text, author = asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
+        return text, author
     except RuntimeError as e:
         logger.exception("RuntimeError during asyncio.run in run_adk_sync:")
-        return f"Error running agent task: {e}. Check logs."
+        return f"Error running agent task: {e}. Check logs.", "error"
     except Exception as e:
         logger.exception("Unexpected exception during run_adk_sync:")
-        return f"An unexpected error occurred: {e}. Check logs."
+        return f"An unexpected error occurred: {e}. Check logs.", "error"
 
-# --- Initialize ADK ---
 try:
     adk_runner, current_adk_session_id = get_runner_and_session_id()
 except Exception as e:
@@ -150,15 +132,25 @@ except Exception as e:
     logger.exception("Critical ADK Initialization/Session Validation failed.")
     st.stop()
 
-# --- Sidebar UI ---
+AGENT_ICONS = {
+    "user": "🧑‍💻",
+    "MetaAgent": "🧠",
+    "ResourceAgent": "☁️",
+    "DataScienceAgent": "📊",
+    "githubagent": "🐙",
+    "MistralChatAgent": "🌬️",
+    "assistant": "🤖",
+    "error": "🚨"
+}
+
 with st.sidebar:
     col1, col2, col3 = st.columns([1, 4, 1])
     with col2:
         try:
-            st.image("assets/google-cloud-logo.png", width=200) # Adjust width as needed
+            st.image("assets/google-cloud-logo.png", width=200)
         except FileNotFoundError:
             st.warning("Logo image not found.")
-            st.header("☁️ Google Cloud") # Fallback text       
+            st.header("☁️ Google Cloud")
     st.markdown(
     """
     <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
@@ -167,9 +159,9 @@ with st.sidebar:
     """,
     unsafe_allow_html=True
     )
-    
+
     st.divider()
-    
+
     st.header("⚙️ Session Info")
     if current_adk_session_id:
         st.success(f"Session Active ✅")
@@ -190,13 +182,13 @@ with st.sidebar:
 
     st.header("🤖 Agent Details")
     runner_instance = st.session_state.get(ADK_RUNNER_KEY)
-    st.markdown(f"**Agent:** `{runner_instance.agent.name if runner_instance and runner_instance.agent else 'N/A'}`")
+    st.markdown(f"**Root Agent:** `{runner_instance.agent.name if runner_instance and runner_instance.agent else 'N/A'}`")
     st.markdown(f"**App:** `{APP_NAME}`")
 
     with st.expander("Show Full Session ID"):
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
-# --- Main Chat Interface UI ---
+
 st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
@@ -206,38 +198,41 @@ st.info(
     * **GCP Resources:** Manage Compute Engine VMs (create, list, start, stop, delete, details) and BigQuery Datasets (create).
     * **BigQuery Data:** Execute SQL queries against your BigQuery tables.
     * **GitHub:** Search for repositories and retrieve file contents.\n
-    Ask me things like "list my VMs", "run a query to count users", or "find langchain repos on github".
+    * **Chat:** General conversation with Mistral.\n
+    Ask me things like "list my VMs", "run a query to count users", "find langchain repos on github", or "tell me a joke".
     """,
     icon="ℹ️"
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:
-    st.session_state[MESSAGE_HISTORY_KEY] = [{"role": "assistant", "content": "Hello dear Cloud enthusiast, how can I assist you today?"}]
+    st.session_state[MESSAGE_HISTORY_KEY] = [{"author": "assistant", "content": "Hello dear Cloud enthusiast, how can I assist you today?"}]
 
 for message in st.session_state[MESSAGE_HISTORY_KEY]:
-    avatar_icon = "🧑‍💻" if message["role"] == "user" else "🤖"
-    with st.chat_message(message["role"], avatar=avatar_icon):
+    author = message.get("author", "assistant")
+    icon = AGENT_ICONS.get(author, AGENT_ICONS["assistant"])
+    with st.chat_message(name=author, avatar=icon):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask about GCP resources, data, or GitHub..."):
-    if not current_adk_session_id:
-         st.error("Agent session ID could not be established. Cannot process request.", icon="❌")
-    elif not adk_runner:
-         st.error("ADK Runner is not available. Cannot process request.", icon="❌")
+if prompt := st.chat_input("Ask about GCP resources, data, GitHub, or just chat..."):
+    if not current_adk_session_id or not adk_runner:
+         st.error("Agent session could not be established. Cannot process request.", icon="❌")
     else:
-        st.session_state[MESSAGE_HISTORY_KEY].append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="🧑‍💻"):
+        st.session_state[MESSAGE_HISTORY_KEY].append({"author": "user", "content": prompt})
+        with st.chat_message("user", avatar=AGENT_ICONS["user"]):
             st.markdown(prompt)
 
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar="⏳"):
             message_placeholder = st.empty()
             with st.spinner("Agent is processing..."):
                 try:
-                    agent_response = run_adk_sync(adk_runner, current_adk_session_id, USER_ID, prompt)
-                    message_placeholder.markdown(agent_response)
-                    st.session_state[MESSAGE_HISTORY_KEY].append({"role": "assistant", "content": agent_response})
+                    agent_response_text, agent_response_author = run_adk_sync(
+                        adk_runner, current_adk_session_id, USER_ID, prompt
+                    )
+                    response_icon = AGENT_ICONS.get(agent_response_author, AGENT_ICONS["assistant"])
+                    message_placeholder.chat_message(name=agent_response_author, avatar=response_icon).markdown(agent_response_text)
+                    st.session_state[MESSAGE_HISTORY_KEY].append({"author": agent_response_author, "content": agent_response_text})
                 except Exception as e:
                     logger.exception("Error running ADK turn from Streamlit input:")
                     error_msg = f"An error occurred: {e}"
                     message_placeholder.error(error_msg, icon="🚨")
-                    st.session_state[MESSAGE_HISTORY_KEY].append({"role": "assistant", "content": error_msg})
+                    st.session_state[MESSAGE_HISTORY_KEY].append({"author": "error", "content": error_msg})
