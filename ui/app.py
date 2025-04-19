@@ -31,7 +31,6 @@ except ImportError as e:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-logger.info("Streamlit App Logger Initialized.")
 
 try:
     nest_asyncio.apply()
@@ -204,6 +203,7 @@ st.info(
     icon="ℹ️"
 )
 
+# Initialize message history if it doesn't exist
 if MESSAGE_HISTORY_KEY not in st.session_state:
     st.session_state[MESSAGE_HISTORY_KEY] = [{"author": "assistant", "content": "Hello dear Cloud enthusiast, how can I assist you today?"}]
 
@@ -213,26 +213,21 @@ for message in st.session_state[MESSAGE_HISTORY_KEY]:
     with st.chat_message(name=author, avatar=icon):
         st.markdown(message["content"])
 
+# Handle new user input
 if prompt := st.chat_input("Ask about GCP resources, data, GitHub, or just chat..."):
     if not current_adk_session_id or not adk_runner:
          st.error("Agent session could not be established. Cannot process request.", icon="❌")
     else:
         st.session_state[MESSAGE_HISTORY_KEY].append({"author": "user", "content": prompt})
-        with st.chat_message("user", avatar=AGENT_ICONS["user"]):
-            st.markdown(prompt)
+        with st.spinner("Agent is processing..."): 
+            try:
+                agent_response_text, agent_response_author = run_adk_sync(
+                    adk_runner, current_adk_session_id, USER_ID, prompt
+                )
+                st.session_state[MESSAGE_HISTORY_KEY].append({"author": agent_response_author, "content": agent_response_text})
+            except Exception as e:
+                logger.exception("Error running ADK turn from Streamlit input:")
+                error_msg = f"An error occurred: {e}"
+                st.session_state[MESSAGE_HISTORY_KEY].append({"author": "error", "content": error_msg})
 
-        with st.chat_message("assistant", avatar="⏳"):
-            message_placeholder = st.empty()
-            with st.spinner("Agent is processing..."):
-                try:
-                    agent_response_text, agent_response_author = run_adk_sync(
-                        adk_runner, current_adk_session_id, USER_ID, prompt
-                    )
-                    response_icon = AGENT_ICONS.get(agent_response_author, AGENT_ICONS["assistant"])
-                    message_placeholder.chat_message(name=agent_response_author, avatar=response_icon).markdown(agent_response_text)
-                    st.session_state[MESSAGE_HISTORY_KEY].append({"author": agent_response_author, "content": agent_response_text})
-                except Exception as e:
-                    logger.exception("Error running ADK turn from Streamlit input:")
-                    error_msg = f"An error occurred: {e}"
-                    message_placeholder.error(error_msg, icon="🚨")
-                    st.session_state[MESSAGE_HISTORY_KEY].append({"author": "error", "content": error_msg})
+        st.rerun()
