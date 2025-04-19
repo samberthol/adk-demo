@@ -1,6 +1,6 @@
 # GCP Multi-Agent Demo (using Google ADK)
 
-This is a small project that demonstrates a multi-agent system built with the Google Agent Development Kit (ADK). It uses a `MetaAgent` to coordinate tasks between specialized agents that interact with Google Cloud services.
+This is a small project that demonstrates a multi-agent system built with the Google Agent Development Kit (ADK). It uses a `MetaAgent` to coordinate tasks between specialized agents that interact with various tools.
 
 ## Overview
 
@@ -35,7 +35,6 @@ The system features:
     │   └── td-flow-chart.png   # Diagram
     ├── ui/                     # Streamlit UI application
     │   └── app.py  
-    ├── main.py                 # Main entry point / Root agent definition
     ├── requirements.txt        # Python dependencies
     ├── Dockerfile              # Dockerfile for containerization
     ├── cloudbuild.yaml         # Cloud Build configuration
@@ -72,13 +71,13 @@ The system features:
 
 3.  **Make script executable:**
 
-        chmod +x build_then_run.sh
+        chmod +x setup_trigger.sh
 
 4.  **Run the script:**
 
-        ./build_then_run.sh
+        ./setup_trigger.sh
 
-This script uses Cloud Build to create a Docker image, pushes it to Artifact Registry, and deploys it as a service on Cloud Run.
+This script creates a Cloud Build Trigger that will watch the repo set in the .env file and will create a Cloud Build that will cast the Docker containers in Cloud Run from the Artefact Registry. Adjust the env variables accordingly at the beginning of the script.
 
 ## Configuration Notes
 
