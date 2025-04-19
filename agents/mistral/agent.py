@@ -69,21 +69,20 @@ class MistralVertexAgent(BaseAgent):
         }
         logger.info(f"[{self.name}] Configured to use model '{self.model_name_version}'")
 
-    # Implement _run_async_impl instead of run_async
+    # Implement _run_async_impl
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
 
-        # Get history from context
-        history = ctx.history or []
+        # Get history from context.session.events
+        history = ctx.session.events or [] # <-- Access via ctx.session.events
         # Get the latest event which should be the user's request
         latest_event = history[-1] if history else None
 
         if not latest_event or not latest_event.is_request() or not latest_event.content:
             logger.warning(f"[{self.name}] No valid user request found at the end of history.")
-            # Handle appropriately - yield error content?
             yield Content(parts=[Part(text="[Agent Error: Could not find user request in context.]")])
-            return # Stop processing if no valid input
+            return
 
         # Extract text from the latest event's content parts
         try:
@@ -91,7 +90,7 @@ class MistralVertexAgent(BaseAgent):
         except (AttributeError, IndexError) as e:
             logger.error(f"[{self.name}] Could not extract text from latest history event: {e}", exc_info=True)
             yield Content(parts=[Part(text="[Agent Error: Could not read user request content.]")])
-            return # Stop processing
+            return
 
         # --- Construct the messages payload ---
         messages_payload = []
@@ -104,15 +103,12 @@ class MistralVertexAgent(BaseAgent):
              try:
                  role = None
                  text = None
-                 # Convert previous request events to 'user' role
                  if event.is_request() and event.content and event.content.parts:
                       role = "user"
                       text = event.content.parts[0].text
-                 # Convert previous response events to 'assistant' role
                  elif event.is_final_response() and event.content and event.content.parts:
                       role = "assistant"
                       text = event.content.parts[0].text
-                 # Add other roles/event types if needed
 
                  if role and text:
                       messages_payload.append({"role": role, "content": text})
@@ -132,7 +128,6 @@ class MistralVertexAgent(BaseAgent):
             if not self.model_name_version:
                  raise RuntimeError("Model name was not initialized.")
 
-
             logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}'...")
 
             call_params = {
@@ -141,17 +136,14 @@ class MistralVertexAgent(BaseAgent):
                 **self.model_parameters
             }
 
-            # Define the synchronous prediction function to run in a thread
             def sync_predict():
                  response = self.client.chat.complete(**call_params)
                  return response
 
-            # Run the synchronous SDK call in a separate thread
             response = await asyncio.to_thread(sync_predict)
 
             logger.info(f"[{self.name}] Received response from MistralGoogleCloud client.")
 
-            # Process response
             if response.choices:
                  content_text = response.choices[0].message.content
             else:
@@ -163,6 +155,5 @@ class MistralVertexAgent(BaseAgent):
             content_text = f"[Agent encountered API error: {type(e).__name__}]"
 
         # --- Yield Final Response ---
-        # ADK expects Content or Event. Yielding Content implies a final response.
         final_content = Content(parts=[Part(text=content_text)])
         yield final_content
