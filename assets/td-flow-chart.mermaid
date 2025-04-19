@@ -1,53 +1,48 @@
 ```mermaid
 graph TD
-    subgraph UserInteraction ["User Interaction"]
-        User["User"]
+    subgraph "User Interaction"
+        U[User] --> ST(Streamlit UI);
     end
 
-    subgraph CloudRunService1 ["Cloud Run Service: Streamlit UI & ADK"]
-        direction LR
-        StreamlitUI["Streamlit UI (ui/app.py)"]
-        subgraph ADKComponents ["ADK Components"]
-            direction TB
-            Runner["ADK Runner"] --> MetaAgent["MetaAgent"];
-            MetaAgent --> ResourceAgent["ResourceAgent"];
-            MetaAgent --> DataScienceAgent["DataScienceAgent"];
-            MetaAgent --> GithubAgent["GithubAgent"];
-        end
-        StreamlitUI --> Runner;
+    subgraph "ADK Core"
+        ST --> R(ADK Runner);
+        R --> MA(MetaAgent / LlmAgent - Gemini);
     end
 
-    subgraph CloudRunService2 ["Cloud Run Service: MCP Server"]
-        MCPServer["MCP Server (Go)"]
+    subgraph "Sub-Agents & Backends"
+        MA --> RA(ResourceAgent / LlmAgent);
+        RA --> GCE(GCE API);
+
+        MA --> DA(DataScienceAgent / LlmAgent);
+        DA --> BQ(BigQuery API);
+
+        MA --> GA(GithubAgent / LlmAgent);
+        GA --> MCP(MCP Server);
+        MCP --> GH(GitHub API);
+
+        MA --> MCA[MistralChatAgent / LlmAgent];
+        MCA --> LLM(LiteLlm Wrapper);
+        LLM --> VTX(Vertex AI Endpoint / Mistral Model);
     end
 
-    subgraph ExternalAPIs ["External APIs"]
-        direction TB
-        GCPCompute["GCP Compute API"]
-        GCPBigQuery["GCP BigQuery API"]
-        GitHubAPI["GitHub API"]
+    subgraph "Response Flow"
+        RA
+        MA;
+        DA
+        MA;
+        GA
+        MA;
+        MCA
+        MA;
+        MA
+        R;
+        R
+        ST;
     end
 
-    User --> StreamlitUI;
-
-    ResourceAgent -- "google-cloud-compute" --> GCPCompute;
-    DataScienceAgent -- "google-cloud-bigquery" --> GCPBigQuery;
-    GithubAgent -- "HTTP Requests (requests lib)" --> MCPServer;
-
-    MCPServer -- "GitHub Token" --> GitHubAPI;
-
-    classDef cloudrun fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef adk fill:#ccf,stroke:#333,stroke-width:1px;
-    classDef external fill:#cfc,stroke:#333,stroke-width:1px;
-    classDef user fill:#ffc,stroke:#333,stroke-width:1px;
-
-    class User user;
-    class StreamlitUI,Runner,MetaAgent,ResourceAgent,DataScienceAgent,GithubAgent adk;
-    class MCPServer cloudrun;
-    class GCPCompute,GCPBigQuery,GitHubAPI external;
-
-
-    style CloudRunService1 fill:#e6f7ff,stroke:#005ea5,stroke-width:2px,stroke-dasharray: 5 5
-    style CloudRunService2 fill:#e6f7ff,stroke:#005ea5,stroke-width:2px,stroke-dasharray: 5 5
-    style ADKComponents fill:#f0f0f0,stroke:#666,stroke-width:1px
+    style GCE fill:#f9f,stroke:#333,stroke-width:2px;
+    style BQ fill:#f9f,stroke:#333,stroke-width:2px;
+    style GH fill:#f9f,stroke:#333,stroke-width:2px;
+    style VTX fill:#f9f,stroke:#333,stroke-width:2px;
+    style MCP fill:#ccf,stroke:#333,stroke-width:2px;
 ```
