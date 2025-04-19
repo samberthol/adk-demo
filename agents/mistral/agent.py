@@ -75,19 +75,23 @@ class MistralVertexAgent(BaseAgent):
     ) -> AsyncGenerator[Event | Content, None]:
 
         # Get history from context.session.events
-        history = ctx.session.events or [] # <-- Access via ctx.session.events
+        history = ctx.session.events or []
         # Get the latest event which should be the user's request
         latest_event = history[-1] if history else None
 
-        if not latest_event or not latest_event.is_request() or not latest_event.content:
+        if not latest_event or latest_event.author != 'user' or not latest_event.content:
+            # Check author is 'user' for the latest event to confirm it's a request
             logger.warning(f"[{self.name}] No valid user request found at the end of history.")
             yield Content(parts=[Part(text="[Agent Error: Could not find user request in context.]")])
             return
 
         # Extract text from the latest event's content parts
         try:
+            # Check if parts exist and the first part has text
+            if not latest_event.content.parts or not hasattr(latest_event.content.parts[0], 'text'):
+                 raise ValueError("Latest event content part is missing text.")
             current_text = latest_event.content.parts[0].text
-        except (AttributeError, IndexError) as e:
+        except (AttributeError, IndexError, ValueError) as e:
             logger.error(f"[{self.name}] Could not extract text from latest history event: {e}", exc_info=True)
             yield Content(parts=[Part(text="[Agent Error: Could not read user request content.]")])
             return
@@ -103,17 +107,21 @@ class MistralVertexAgent(BaseAgent):
              try:
                  role = None
                  text = None
-                 if event.is_request() and event.content and event.content.parts:
+                 # Check author and content for user role
+                 if event.author == 'user' and event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
                       role = "user"
                       text = event.content.parts[0].text
-                 elif event.is_final_response() and event.content and event.content.parts:
+                 # Check author and content for assistant role (use self.name)
+                 elif event.author == self.name and event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
                       role = "assistant"
                       text = event.content.parts[0].text
+                 # Note: This ignores tool calls/responses in history for simplicity
 
                  if role and text:
                       messages_payload.append({"role": role, "content": text})
              except Exception as e:
-                  logger.warning(f"[{self.name}] Error processing history event {type(event)}: {e}")
+                  # Add more specific logging if possible
+                  logger.warning(f"[{self.name}] Error processing history event ID {event.id if event else 'N/A'} (Author: {event.author if event else 'N/A'}): {e}")
 
         # Add the current user message extracted from the latest event
         messages_payload.append({"role": "user", "content": current_text})
@@ -129,6 +137,8 @@ class MistralVertexAgent(BaseAgent):
                  raise RuntimeError("Model name was not initialized.")
 
             logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}'...")
+            # Optional: Log the payload for debugging (can be verbose)
+            # logger.debug(f"[{self.name}] Payload: {messages_payload}")
 
             call_params = {
                 "model": self.model_name_version,
@@ -144,10 +154,12 @@ class MistralVertexAgent(BaseAgent):
 
             logger.info(f"[{self.name}] Received response from MistralGoogleCloud client.")
 
-            if response.choices:
+            if response.choices and response.choices[0].message:
                  content_text = response.choices[0].message.content
+                 # Log the response for debugging if needed
+                 # logger.debug(f"[{self.name}] Response Content: {content_text}")
             else:
-                 logger.warning(f"[{self.name}] Received no choices in response from client.")
+                 logger.warning(f"[{self.name}] Received no choices or message content in response from client. Response: {response}")
                  content_text = "[Agent received no response choices]"
 
         except Exception as e:
