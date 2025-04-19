@@ -1,7 +1,10 @@
 # agents/meta/agent.py
 import os
 import logging
-from google.adk.agents import LlmAgent
+from typing import Optional
+
+from google.adk.agents import LlmAgent, CallbackContext
+from google.genai.types import Content, Part, FunctionCall
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
@@ -13,37 +16,88 @@ logger = logging.getLogger(__name__)
 # Get the model for the MetaAgent itself
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
-# Instantiate MistralVertexAgent (it will read its own env vars and init SDK)
+# Define the target agent name
+MISTRAL_AGENT_NAME = "MistralChatAgent"
+
+# --- Callback Function ---
+def _save_input_for_mistral_agent(
+    callback_context: CallbackContext, llm_response: Content
+) -> None:
+    """
+    After model callback to save user input to state if transferring to Mistral.
+    """
+    transfer_to_mistral = False
+    if llm_response and llm_response.parts:
+        # Check if the LLM response contains a function call to transfer
+        # Note: Adapt this check if your transfer mechanism differs
+        func_calls = getattr(llm_response.parts[0], 'function_call', None)
+        if isinstance(func_calls, FunctionCall): # Handle single call case if needed
+             func_calls = [func_calls] # Treat as list
+        elif not isinstance(func_calls, list): # Handle if it's not a list or FunctionCall object
+             func_calls = []
+
+        for call in func_calls:
+            # Check if it's the specific transfer function/tool and target agent
+            if (
+                getattr(call, 'name', '') == 'transfer_to_agent' and
+                isinstance(getattr(call, 'args', None), dict) and
+                call.args.get('agent_name') == MISTRAL_AGENT_NAME
+            ):
+                transfer_to_mistral = True
+                break # Found the relevant transfer call
+
+    if transfer_to_mistral:
+        logger.info(f"[{callback_context.agent_name}] LLM decided to transfer to {MISTRAL_AGENT_NAME}. Saving preceding user input to state.")
+        # Find the last user event in the history *before* this LLM response
+        last_user_event = None
+        history = callback_context.session.events or []
+        for event in reversed(history):
+            if event and event.author == 'user':
+                last_user_event = event
+                break
+
+        if last_user_event and last_user_event.content and last_user_event.content.parts:
+            try:
+                 # Extract text from the last user event
+                user_text = last_user_event.content.parts[0].text
+                if user_text:
+                    # Save it to session state for the Mistral agent
+                    callback_context.add_state_delta({'mistral_input': user_text})
+                    logger.info(f"[{callback_context.agent_name}] Saved input for {MISTRAL_AGENT_NAME}: '{user_text[:50]}...'")
+                else:
+                     logger.warning(f"[{callback_context.agent_name}] Preceding user event had no text content.")
+            except Exception as e:
+                 logger.error(f"[{callback_context.agent_name}] Failed to extract text from preceding user event: {e}", exc_info=True)
+        else:
+            logger.warning(f"[{callback_context.agent_name}] Could not find preceding user event in history to save for {MISTRAL_AGENT_NAME}.")
+
+# --- Mistral Agent Instantiation (with original try/except) ---
 mistral_agent = None
-# --- Reinstate try/except block for robustness ---
 try:
-    # Instantiate without passing config parameters (Agent handles its own config)
     mistral_agent = MistralVertexAgent(
-        name="MistralChatAgent",
+        name=MISTRAL_AGENT_NAME, # Use constant
         description="A conversational agent powered by Mistral via Vertex AI.",
         instruction="You are a helpful conversational AI assistant based on Mistral models."
     )
-    # Log success only if instantiation passes __init__ checks
-    logger.info("Successfully instantiated MistralVertexAgent (MistralChatAgent)")
+    logger.info(f"Successfully instantiated MistralVertexAgent ({MISTRAL_AGENT_NAME})")
 except ValueError as e:
-    # Catch errors if required env vars are missing within the agent's __init__
     logger.warning(f"Could not instantiate MistralVertexAgent - Missing Env Var(s): {e}")
 except RuntimeError as e:
-    # Catch errors related to SDK/Endpoint initialization inside __init__
-    logger.error(f"Could not instantiate MistralVertexAgent - SDK/Endpoint Init Error: {e}", exc_info=False) # exc_info=False to avoid duplicate traceback
+    logger.error(f"Could not instantiate MistralVertexAgent - SDK/Endpoint Init Error: {e}", exc_info=False)
 except Exception as e:
-    # Catch any other unexpected initialization errors
     logger.error(f"Unexpected error instantiating MistralVertexAgent: {e}", exc_info=True)
-# --- End of reinstated try/except ---
 
 
-# Build the list of active sub-agents
+# --- Build Active Sub-Agents List ---
 active_sub_agents = [resource_agent, data_science_agent, githubagent]
 if mistral_agent:
     active_sub_agents.append(mistral_agent)
+else:
+    # Log if Mistral agent is inactive, as MetaAgent instructions depend on it
+    logger.warning(f"{MISTRAL_AGENT_NAME} could not be initialized and will not be available.")
 
 
-# Define Meta Agent
+# --- Define Meta Agent (with callback) ---
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,
@@ -53,8 +107,10 @@ meta_agent = LlmAgent(
         "- If it involves managing cloud resources (like creating a VM or dataset), delegate the task to the 'ResourceAgent'.\n"
         "- If it involves querying data from BigQuery, delegate the task to the 'DataScienceAgent'.\n"
         "- If it involves searching GitHub or getting information from a GitHub repository, delegate the task to the 'githubagent'.\n"
-        "- If the request appears to be general conversation to the Mistral Agent, requires summarization, explanation, brainstorming, or doesn't clearly fit other agents, delegate the task to the 'MistralChatAgent'.\n"
+        f"- If the request appears to be general conversation with Mistral, requires summarization, explanation, brainstorming, or doesn't clearly fit other agents, delegate the task to the '{MISTRAL_AGENT_NAME}'.\n" # Use constant
         "Clearly present the results from the specialist agents or the chat agent back to the user."
     ),
     sub_agents=active_sub_agents,
+    # Add the callback here
+    after_model_callback=_save_input_for_mistral_agent,
 )

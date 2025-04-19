@@ -22,7 +22,7 @@ class MistralVertexAgent(BaseAgent):
     """
     Custom ADK agent interacting with Mistral models on Vertex AI via the mistralai-gcp library.
     Reads configuration from environment variables and uses ADC for authentication.
-    Uses the first user event in the history as input.
+    Reads input passed via session state['mistral_input'].
     """
     instruction: Optional[str] = None
     model_name_version: Optional[str] = None
@@ -75,36 +75,27 @@ class MistralVertexAgent(BaseAgent):
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event | Content, None]:
 
-        # --- Find the FIRST user event in history --- ## MODIFIED HERE ##
-        history = ctx.session.events or []
-        first_user_event = None
-        for event in history:
-            # Look for the first event authored by 'user'
-            if event and event.author == 'user':
-                first_user_event = event
-                break # Stop after finding the first one
+        # --- Get input from session state --- ## MODIFIED HERE ##
+        state_key = 'mistral_input'
+        current_text = ctx.session.state.get(state_key)
 
-        if not first_user_event or not first_user_event.content:
-            logger.warning(f"[{self.name}] No initial user event found in history.")
-            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not find initial user request in history.]")]))
+        if not current_text:
+            logger.warning(f"[{self.name}] No input found in session state key '{state_key}'.")
+            yield Event(author=self.name, content=Content(parts=[Part(text=f"[Agent Error: No input found in state key '{state_key}'.]")]))
             return
-
-        try:
-            # Extract text from the first user event's content parts
-            if not first_user_event.content.parts or not hasattr(first_user_event.content.parts[0], 'text'):
-                 raise ValueError("First user event content part is missing text.")
-            current_text = first_user_event.content.parts[0].text
-        except (AttributeError, IndexError, ValueError) as e:
-            logger.error(f"[{self.name}] Could not extract text from first user event: {e}", exc_info=True)
-            yield Event(author=self.name, content=Content(parts=[Part(text="[Agent Error: Could not read initial user request content.]")]))
-            return
+        else:
+            # Log the input being used
+            logger.info(f"[{self.name}] Received input from state: '{current_text[:50]}...'")
+            # Signal state change to remove the key after reading (important!)
+            ctx.add_state_delta({state_key: None})
         # --- End Input Handling Modification ---
 
-        # --- Construct the messages payload (Still No History Processing) ---
-        # This agent acts only on the single input found above
+
+        # --- Construct the messages payload (No History Processing Needed) ---
         messages_payload = []
         if self.instruction:
              messages_payload.append({"role": "system", "content": self.instruction})
+        # Just add the current user message read from state
         messages_payload.append({"role": "user", "content": current_text})
         # --- End Payload Construction ---
 
@@ -118,7 +109,7 @@ class MistralVertexAgent(BaseAgent):
             if not self.model_name_version:
                  raise RuntimeError("Model name was not initialized.")
 
-            logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}' based on first user input...")
+            logger.info(f"[{self.name}] Sending request to Mistral model '{self.model_name_version}'...")
 
             call_params = {
                 "model": self.model_name_version,
