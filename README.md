@@ -9,6 +9,7 @@ The system features:
 * **`MetaAgent`**: Routes user requests to the appropriate specialized agent.
 * **`ResourceAgent`**: Manages [Google Compute Engine](https://cloud.google.com/compute/docs) VM instances (create, delete, list, start, stop, get details).
 * **`DataScienceAgent`**: Interacts with [Google BigQuery](https://cloud.google.com/bigquery/docs) (runs queries, creates datasets).
+* **`MistralChatAgent`**: A Mistral-Small agent integrated via LiteLLM.
 * **Streamlit UI**: Provides a web interface for interacting with the agents.
 * **Deployment Scripts**: Automates building and deployment using [Google Cloud Build](https://cloud.google.com/build/docs) to deploy on [Google Cloud Run](https://cloud.google.com/run/docs) using a [Cloud Build Trigger](https://cloud.google.com/build/docs/triggers) on the GitHub repo. Container images are stored in [Google Artifact Registry](https://cloud.google.com/artifact-registry/docs).
 
@@ -52,6 +53,7 @@ The system features:
     * Cloud Build API
     * Cloud Run API
     * Artifact Registry API
+    * Mistral Small API
 * A user with Owner role on the project
 * An Artefact Registry repo
 * A [Google API Key](https://aistudio.google.com/apikey) (for ADK interaction with Gemini models).
