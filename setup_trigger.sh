@@ -3,13 +3,13 @@
 
 set -e
 
-ENV_FILE=".env.llm.mistral"
-TRIGGER_NAME="adk-demo-main-trigger-llm-mistral"
+ENV_FILE=".env"
+TRIGGER_NAME="adk-demo-main-trigger"
 GITHUB_REPO_OWNER="samberthol"
 GITHUB_REPO_NAME="adk-demo"
-TRIGGER_BRANCH="^llm-mistral$"
+TRIGGER_BRANCH="^main$"
 BUILD_CONFIG_FILE="cloudbuild.yaml"
-IGNORED_FILES="README.md,LICENSE,docs/**,*.md"
+IGNORED_FILES="README.md,LICENSE,docs/**,*.md,setup_trigger.sh"
 
 check_tool() {
   command -v "$1" >/dev/null 2>&1 || { echo >&2 "Error: Required tool '$1' is not installed. Aborting."; exit 1; }
