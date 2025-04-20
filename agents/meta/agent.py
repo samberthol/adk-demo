@@ -30,7 +30,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Get the model for the MetaAgent itself
-agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-1.5-flash') # Updated model name based on your fetched file
+agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash') # Updated model name based on your fetched file
 
 # Define agent names
 MISTRAL_AGENT_NAME = "MistralChatAgent"
@@ -121,8 +121,8 @@ meta_agent = LlmAgent(
         "- If it involves querying data from BigQuery, delegate the task to the 'DataScienceAgent'.\n"
         "- If it involves searching GitHub or getting information from a GitHub repository, delegate the task to the 'githubagent'.\n"
         f"- If it asks for information about GCP services, documentation, code examples, or needs factual verification about GCP, delegate the task to the '{LLM_AUDITOR_NAME}'. Provide the user's question or the statement to verify as input to the auditor.\n"
-        # --- ADD ROUTING INSTRUCTION FOR A2A BRIDGE ---
-        f"- If the request uses phrases like 'ask langchain', 'using langgraph', or 'external agent', delegate the task to the '{a2a_langchain_bridge_agent.name}'.\n"
+        # --- MODIFIED ROUTING INSTRUCTION FOR A2A BRIDGE ---
+        f"- If the request is addressed to 'langchain' or 'langgraph' or mentions connecting to an 'external agent', delegate the task to '{a2a_langchain_bridge_agent.name}'.\n"
         # --- END A2A ROUTING INSTRUCTION ---
         f"- If the request appears to be general conversation, requires summarization, explanation, brainstorming, or doesn't clearly fit other agents, delegate the task to the '{MISTRAL_AGENT_NAME}'.\n"
         "Clearly present the results from the specialist agents or the chat agent back to the user."
