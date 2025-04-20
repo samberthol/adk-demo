@@ -5,7 +5,9 @@ import json
 import logging
 import time
 import uuid
-from google.adk.tools import Tool
+# --- Corrected ADK Tool Import ---
+from google.adk import Tool
+# --- End Correction ---
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
