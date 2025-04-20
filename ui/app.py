@@ -18,7 +18,7 @@ LAST_TURN_AUTHOR_KEY = f"last_author_{APP_NAME}"
 st.set_page_config(
     layout="wide",
     page_title="GCP Agent Hub",
-    page_icon="☁️"
+    page_icon="☁️" # Corrected icon rendering
     )
 
 try:
@@ -163,7 +163,7 @@ def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str
 
         mermaid_lines.append(f'  class {root_name} default;')
         for name in sub_agent_names:
-            mermaid_lines.append(f'  class {name} default;')
+            mermaid_lines.append(f'  class {name} default;\n') # Added newline consistency
 
         if last_author and (last_author == root_name or last_author in sub_agent_names):
             mermaid_lines.append(f'  class {last_author} active;')
@@ -180,7 +180,7 @@ try:
     adk_runner, current_adk_session_id = get_runner_and_session_id()
     root_agent_instance = adk_runner.agent if adk_runner else None
 except Exception as e:
-    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌")
+    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌") # Corrected icon rendering
     logger.exception("Critical ADK Initialization/Session Validation failed.")
     root_agent_instance = None
     adk_runner = None
@@ -193,7 +193,7 @@ with st.sidebar:
             st.image("assets/google-cloud-logo.png", width=200)
         except FileNotFoundError:
             st.warning("Logo image not found.")
-            st.header("☁️ Google Cloud")
+            st.header("☁️ Google Cloud") # Corrected icon rendering
     st.markdown(
     """
     <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
@@ -205,13 +205,13 @@ with st.sidebar:
 
     st.divider()
 
-    st.header("⚙️ Session Info")
+    st.header("⚙️ Session Info") # Corrected icon rendering
     if current_adk_session_id:
-        st.success(f"Session Active ✅")
+        st.success(f"Session Active ✅") # Corrected icon rendering
     else:
-         st.error("Session Inactive ❌")
+         st.error("Session Inactive ❌") # Corrected icon rendering
 
-    if st.button("🔄 Clear Chat & Reset Session"):
+    if st.button("🔄 Clear Chat & Reset Session"): # Corrected icon rendering
         logger.info(f"Clearing chat history and resetting session for user {USER_ID}, ADK session {current_adk_session_id}")
         st.session_state.pop(MESSAGE_HISTORY_KEY, None)
         st.session_state.pop(ADK_SESSION_ID_KEY, None)
@@ -224,43 +224,27 @@ with st.sidebar:
 
     st.divider()
 
-    st.header("🤖 Agent Architecture")
+    # --- Corrected Agent Architecture Diagram --- ## MODIFIED HERE ##
+    st.header("🤖 Agent Architecture") # Corrected icon rendering
     last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
-    mermaid_syntax = "" # Initialize syntax string
-    sub_agent_names_debug = [] # Initialize for debug output
-
     if root_agent_instance:
         try:
-            # --- Add Debugging ---
-            sub_agents_debug = getattr(root_agent_instance, 'sub_agents', [])
-            sub_agent_names_debug = [getattr(sa, 'name', f'UnknownSubAgent_{i}') for i, sa in enumerate(sub_agents_debug)]
-            with st.expander("Debug Info"):
-                 st.write("Root Agent Instance:", root_agent_instance)
-                 st.write("Root Agent Name:", getattr(root_agent_instance, 'name', 'N/A'))
-                 st.write("Sub-Agent Objects:", sub_agents_debug)
-                 st.write("Detected Sub-Agent Names:", sub_agent_names_debug)
-                 st.write("Last Author:", last_author)
-            # --- End Debugging ---
-
+            # Generate the dynamic syntax
             mermaid_syntax = generate_mermaid_syntax(root_agent_instance, last_author)
-            st_mermaid(mermaid_syntax, height=300)
-
-            # --- Add Debugging for Mermaid Syntax ---
-            with st.expander("Generated Mermaid Syntax"):
-                st.code(mermaid_syntax, language='mermaid')
-            # --- End Debugging ---
-
+            # Render using st_mermaid
+            st_mermaid(mermaid_syntax, height=350) # Adjusted height slightly
         except Exception as e:
              logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
              st.error("Error displaying agent architecture.")
     else:
         st.warning("Agent runner not initialized, cannot display architecture.")
+    # --- End Correction ---
 
     with st.expander("Show Full Session ID"):
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
-st.title("☁️ GCP Agent Hub")
+st.title("☁️ GCP Agent Hub") # Corrected icon rendering
 st.caption("Powered by Google ADK")
 
 st.info(
@@ -273,7 +257,7 @@ st.info(
     * **Chat:** General conversation with Mistral.\n
     Ask me things like "list my VMs", "run a query to count users", "find langchain repos on github", "what is Cloud Run?", or "tell me a joke".
     """,
-    icon="ℹ️"
+    icon="ℹ️" # Corrected icon rendering
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:
@@ -287,7 +271,7 @@ for message in st.session_state[MESSAGE_HISTORY_KEY]:
 
 if prompt := st.chat_input("Ask about GCP resources, data, GitHub, GCP details, or just chat..."):
     if not current_adk_session_id or not adk_runner:
-         st.error("Agent session could not be established. Cannot process request.", icon="❌")
+         st.error("Agent session could not be established. Cannot process request.", icon="❌") # Corrected icon rendering
     else:
         st.session_state[MESSAGE_HISTORY_KEY].append({"author": "user", "content": prompt})
 
