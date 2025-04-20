@@ -126,44 +126,6 @@ def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_tex
         logger.exception("Unexpected exception during run_adk_sync:")
         return f"An unexpected error occurred: {e}. Check logs.", "error"
 
-def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str:
-    if not root_agent_instance:
-        return "graph TD;\n  Error[ADK Runner/Agent not initialized];"
-
-    root_name = root_agent_instance.name
-    sub_agents = getattr(root_agent_instance, 'sub_agents', [])
-    sub_agent_names = [getattr(sa, 'name', f'UnknownSubAgent_{i}') for i, sa in enumerate(sub_agents)]
-
-    mermaid = f"graph TD;\n"
-    root_icon = AGENT_ICONS.get(root_name, '❓')
-    mermaid += f'  {root_name}["{root_icon} {root_name}"];\n'
-    for name in sub_agent_names:
-        icon = AGENT_ICONS.get(name, '❓')
-        mermaid += f'  {name}["{icon} {name}"];\n'
-        mermaid += f'  {root_name} --> {name};\n'
-
-    mermaid += '  classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333;\n'
-    mermaid += '  classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000;\n'
-
-    mermaid += f'  class {root_name} default;\n'
-    for name in sub_agent_names:
-        mermaid += f'  class {name} default;\n'
-
-    if last_author and (last_author == root_name or last_author in sub_agent_names):
-        mermaid += f'  class {last_author} active;\n'
-
-    return mermaid
-
-try:
-    adk_runner, current_adk_session_id = get_runner_and_session_id()
-    root_agent_instance = adk_runner.agent if adk_runner else None
-except Exception as e:
-    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌")
-    logger.exception("Critical ADK Initialization/Session Validation failed.")
-    root_agent_instance = None
-    adk_runner = None
-    current_adk_session_id = None
-
 AGENT_ICONS = {
     "user": "🧑‍💻",
     "MetaAgent": "🧠",
@@ -177,6 +139,52 @@ AGENT_ICONS = {
     "assistant": "🤖",
     "error": "🚨"
 }
+
+def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str:
+    if not root_agent_instance:
+        return "graph TD;\n  Error[ADK Runner/Agent not initialized];"
+
+    mermaid_lines = ["graph TD;"]
+    try:
+        root_name = getattr(root_agent_instance, 'name', 'UnknownRootAgent')
+        sub_agents = getattr(root_agent_instance, 'sub_agents', [])
+        sub_agent_names = [getattr(sa, 'name', f'UnknownSubAgent_{i}') for i, sa in enumerate(sub_agents)]
+
+        root_icon = AGENT_ICONS.get(root_name, '❓')
+        mermaid_lines.append(f'  {root_name}["{root_icon} {root_name}"];')
+
+        for name in sub_agent_names:
+            icon = AGENT_ICONS.get(name, '❓')
+            mermaid_lines.append(f'  {name}["{icon} {name}"];')
+            mermaid_lines.append(f'  {root_name} --> {name};')
+
+        mermaid_lines.append('  classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333;')
+        mermaid_lines.append('  classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000;')
+
+        mermaid_lines.append(f'  class {root_name} default;')
+        for name in sub_agent_names:
+            mermaid_lines.append(f'  class {name} default;')
+
+        if last_author and (last_author == root_name or last_author in sub_agent_names):
+            mermaid_lines.append(f'  class {last_author} active;')
+        elif last_author:
+             logger.warning(f"Last author '{last_author}' not found in root/sub-agent list for highlighting.")
+
+    except Exception as e:
+        logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
+        mermaid_lines = ["graph TD;", "  ErrorGeneratingGraph[Error generating graph];"]
+
+    return "\n".join(mermaid_lines)
+
+try:
+    adk_runner, current_adk_session_id = get_runner_and_session_id()
+    root_agent_instance = adk_runner.agent if adk_runner else None
+except Exception as e:
+    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌")
+    logger.exception("Critical ADK Initialization/Session Validation failed.")
+    root_agent_instance = None
+    adk_runner = None
+    current_adk_session_id = None
 
 with st.sidebar:
     col1, col2, col3 = st.columns([1, 4, 1])
@@ -217,12 +225,39 @@ with st.sidebar:
     st.divider()
 
     st.header("🤖 Agent Architecture")
-    simple_graph = """
-    graph TD;
-        A[MetaAgent] --> B(SubAgent1);
-        A --> C(SubAgent2);
-    """
-    st_mermaid(simple_graph) # Use the correct function call
+    last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
+    mermaid_syntax = "" # Initialize syntax string
+    sub_agent_names_debug = [] # Initialize for debug output
+
+    if root_agent_instance:
+        try:
+            # --- Add Debugging ---
+            sub_agents_debug = getattr(root_agent_instance, 'sub_agents', [])
+            sub_agent_names_debug = [getattr(sa, 'name', f'UnknownSubAgent_{i}') for i, sa in enumerate(sub_agents_debug)]
+            with st.expander("Debug Info"):
+                 st.write("Root Agent Instance:", root_agent_instance)
+                 st.write("Root Agent Name:", getattr(root_agent_instance, 'name', 'N/A'))
+                 st.write("Sub-Agent Objects:", sub_agents_debug)
+                 st.write("Detected Sub-Agent Names:", sub_agent_names_debug)
+                 st.write("Last Author:", last_author)
+            # --- End Debugging ---
+
+            mermaid_syntax = generate_mermaid_syntax(root_agent_instance, last_author)
+            st_mermaid(mermaid_syntax, height=300)
+
+            # --- Add Debugging for Mermaid Syntax ---
+            with st.expander("Generated Mermaid Syntax"):
+                st.code(mermaid_syntax, language='mermaid')
+            # --- End Debugging ---
+
+        except Exception as e:
+             logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
+             st.error("Error displaying agent architecture.")
+    else:
+        st.warning("Agent runner not initialized, cannot display architecture.")
+
+    with st.expander("Show Full Session ID"):
+        st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
 st.title("☁️ GCP Agent Hub")
