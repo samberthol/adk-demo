@@ -1,28 +1,64 @@
 # agents/meta/agent.py
 import os
 import logging
-from typing import Optional
+from typing import Optional, List # Added List
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
+# --- Imports needed for Callback --- START ---
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmRequest
+from google.genai.types import Content
+# --- Imports needed for Callback --- END ---
+
 
 # Import other sub-agents
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
-# --- Corrected Import for LLM Auditor Agent ---
 # Import from the nested 'llm_auditor' directory
 from agents.llm_auditor.llm_auditor.agent import llm_auditor
 
 logger = logging.getLogger(__name__)
 
-# Get the model for the MetaAgent itself 
+# Get the model for the MetaAgent itself
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 # Define agent names
 MISTRAL_AGENT_NAME = "MistralChatAgent"
-# Get the actual name defined in the llm_auditor module, default if needed
 LLM_AUDITOR_NAME = getattr(llm_auditor, 'name', 'llm_auditor')
+
+# --- Callback Function to Filter Mistral History --- START ---
+def _filter_mistral_history(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> None:
+    """
+    Filters the history in the LLM request for MistralChatAgent
+    to remove unsupported roles like 'tool'.
+    """
+    if not llm_request or not hasattr(llm_request, 'contents') or not llm_request.contents:
+        logger.warning(f"[{callback_context.agent_name}] before_model_callback received empty request or no contents.")
+        return
+
+    logger.info(f"[{callback_context.agent_name}] Running before_model_callback to filter roles.")
+    filtered_contents: List[Content] = []
+    allowed_roles = {'user', 'assistant', 'system'}
+
+    for content_item in llm_request.contents:
+        if isinstance(content_item, Content) and hasattr(content_item, 'role'):
+            if content_item.role in allowed_roles:
+                filtered_contents.append(content_item)
+            else:
+                logger.debug(f"[{callback_context.agent_name}] Filtering out message with role: {content_item.role}")
+        else:
+            logger.warning(f"[{callback_context.agent_name}] Encountered unexpected item type in request contents: {type(content_item)}")
+            filtered_contents.append(content_item)
+
+    llm_request.contents = filtered_contents
+    logger.info(f"[{callback_context.agent_name}] Finished filtering roles. Message count now: {len(llm_request.contents)}")
+
+    return None
+# --- Callback Function to Filter Mistral History --- END ---
 
 # --- Instantiate Mistral Agent using LlmAgent and LiteLlm ---
 mistral_agent = None
@@ -36,9 +72,11 @@ if mistral_model_id:
             name=MISTRAL_AGENT_NAME,
             model=LiteLlm(model=litellm_model_string),
             description="A conversational agent powered by Mistral via Vertex AI (using LiteLLM).",
-            instruction="You are a helpful conversational AI assistant based on Mistral models. Respond directly to the user's query."
+            instruction="You are a helpful conversational AI assistant based on Mistral models. Respond directly to the user's query.",
+            # Add the callback here
+            before_model_callback=_filter_mistral_history # <-- ADDED THIS LINE
         )
-        logger.info(f"Successfully configured {MISTRAL_AGENT_NAME} as LlmAgent with LiteLlm.")
+        logger.info(f"Successfully configured {MISTRAL_AGENT_NAME} as LlmAgent with LiteLlm and history filter.") # Updated log
     except Exception as e:
         logger.error(f"Failed to configure {MISTRAL_AGENT_NAME} with LiteLlm: {e}", exc_info=True)
         mistral_agent = None
@@ -47,7 +85,7 @@ else:
     mistral_agent = None
 
 
-# --- Build Active Sub-Agents List ---
+# --- Build Active Sub-Agents List --- (Your existing logic is kept)
 active_sub_agents = [resource_agent, data_science_agent, githubagent]
 
 if mistral_agent:
@@ -55,17 +93,14 @@ if mistral_agent:
 else:
     logger.warning(f"{MISTRAL_AGENT_NAME} could not be initialized and will not be available.")
 
-# Add LLM Auditor agent (llm_auditor instance is imported directly)
-# Assuming the import above succeeded, llm_auditor should be valid
 if 'llm_auditor' in globals() and llm_auditor:
      active_sub_agents.append(llm_auditor)
      logger.info(f"Adding '{LLM_AUDITOR_NAME}' to sub-agents list.")
 else:
-     # This path would be taken if the import itself failed, which should crash earlier
      logger.error(f"LLM Auditor agent ('{LLM_AUDITOR_NAME}') object not found after import attempt. Check import path and Dockerfile copy step.")
 
 
-# --- Define Meta Agent (Instructions unchanged from previous version) ---
+# --- Define Meta Agent --- (Your existing logic is kept)
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,
