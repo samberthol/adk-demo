@@ -15,7 +15,6 @@ ADK_SERVICE_KEY = f'adk_service_{APP_NAME}'
 ADK_RUNNER_KEY = f'adk_runner_{APP_NAME}'
 MESSAGE_HISTORY_KEY = f"messages_{APP_NAME}"
 LAST_TURN_AUTHOR_KEY = f"last_author_{APP_NAME}"
-# New key to store the set of activated agents from the last turn
 ACTIVATED_AGENTS_KEY = f"activated_agents_{APP_NAME}"
 
 st.set_page_config(
@@ -90,62 +89,81 @@ def get_runner_and_session_id():
 
     return runner, session_id
 
-# --- Modified Async Runner Function ---
+# --- Async Runner Function with DETAILED LOGGING --- ## REVERTED/MODIFIED HERE ##
 async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> Tuple[str, str, Set[str]]:
-    """
-    Runs a turn of the ADK agent asynchronously.
-    Returns the final response text, the final author agent's name,
-    and a set of unique agent names activated during the turn.
-    """
-    logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id} ---")
+    logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id}, User: {user_id} ---")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
-    final_response_author = "assistant" # Default if no response with author found
-    activated_agents_set = set() # Use a set to store unique agent names
+    final_response_author = "assistant"
+    last_text_event_author = "assistant" # Track author of the most recent text event
+    activated_agents_set = set()
     start_time = time.time()
+    event_counter = 0
 
     try:
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+            event_counter += 1
             author = event.author
-            # Track non-user agent authors
+            has_text = False
+            content_type = "N/A"
+            text_preview = ""
+
+            # Determine content type and preview
+            if event.content and event.content.parts:
+                 part = event.content.parts[0]
+                 if hasattr(part, 'text') and part.text is not None:
+                      has_text = True
+                      content_type = "text"
+                      text_preview = repr(part.text[:70]) + ("..." if len(part.text) > 70 else "")
+                 elif hasattr(part, 'function_call') and part.function_call is not None:
+                      content_type = "function_call"
+                      fc = part.function_call
+                      text_preview = f"FunctionCall(name={getattr(fc, 'name', 'N/A')})"
+                 elif hasattr(part, 'function_response') and part.function_response is not None:
+                     content_type = "function_response"
+                     fr = part.function_response
+                     text_preview = f"FunctionResponse(name={getattr(fr, 'name', 'N/A')})" # Preview response content if needed
+
+            # --- Detailed Event Logging ---
+            log_msg = f"--- ADK Event {event_counter}: Author='{author}', Type='{content_type}', Content='{text_preview}'"
+            logger.info(log_msg) # Use INFO level for visibility
+            # --- End Logging ---
+
+            # Track activated agents
             if author and author != 'user':
                 activated_agents_set.add(author)
 
-            # Capture the latest text response and its author
-            if event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
-                 final_response_text = event.content.parts[0].text
-                 final_response_author = author or "assistant" # Update final author
+            # Update based on text content
+            if has_text:
+                 final_response_text = event.content.parts[0].text # Get full text
+                 last_text_event_author = author or "assistant"
+                 logger.info(f"-------> Updated last_text_event_author to '{last_text_event_author}' (Event {event_counter})")
 
     except Exception as e:
         if "Session not found" in str(e):
              logger.error(f"--- ADK Run Async: Confirmed 'Session not found' error for {session_id} / {user_id}")
              final_response_text = "Error: Agent session expired or was lost. Please try clearing the session and starting again."
-             final_response_author = "error"
+             last_text_event_author = "error"
              activated_agents_set.add("error")
         else:
             logger.exception("--- ADK Run Async: !! EXCEPTION during agent execution:")
             final_response_text = f"Sorry, an error occurred during agent execution: {e}"
-            final_response_author = "error"
-            activated_agents_set.add("error") # Add error marker
+            last_text_event_author = "error"
+            activated_agents_set.add("error")
     finally:
         end_time = time.time()
         duration = end_time - start_time
+        final_response_author = last_text_event_author # Assign last text author at the end
         logger.info(f"--- ADK Run Async: Turn execution completed in {duration:.2f} seconds.")
-        logger.info(f"--- ADK Run Async: Final author: {final_response_author}")
+        logger.info(f"--- ADK Run Async: Final Author Determined: {final_response_author}")
         logger.info(f"--- ADK Run Async: Activated agents this turn: {activated_agents_set}")
 
-
     return final_response_text, final_response_author, activated_agents_set
+# --- End Modification ---
 
-# --- Modified Sync Wrapper ---
 def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> Tuple[str, str, Set[str]]:
-    """
-    Synchronous wrapper to call the async ADK runner function using asyncio.run.
-    Handles potential runtime errors during async execution.
-    Returns final text, final author, and set of activated agents.
-    """
+    # ... (function remains the same) ...
     try:
-        # Capture all three return values
         text, author, activated_set = asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
         return text, author, activated_set
     except RuntimeError as e:
@@ -155,7 +173,6 @@ def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_tex
         logger.exception("Unexpected exception during run_adk_sync:")
         return f"An unexpected error occurred: {e}. Check logs.", "error", {"error"}
 
-# --- Icon Mapping ---
 AGENT_ICONS = {
     "user": "🧑‍💻",
     "MetaAgent": "🧠",
@@ -166,52 +183,54 @@ AGENT_ICONS = {
     "llm_auditor": "🔎",
     "critic_agent": "🔎",
     "reviser_agent": "🔎",
-    "assistant": "🤖", # Fallback for initial message or unknowns
+    "assistant": "🤖",
     "error": "🚨"
 }
 
-# --- Modified Mermaid Diagram Generation ---
 def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], last_author: str = None) -> str:
-    """Generates Mermaid TD syntax showing only activated agents for the turn."""
+    # ... (function remains the same using 'class NodeId className' syntax) ...
     if not root_agent_name:
         return "graph TD;\n  Error[ADK Runner/Agent not initialized];\n"
 
     mermaid_lines = ["graph TD"]
     try:
-        # Ensure root agent is always included if relevant agents were activated
-        agents_to_draw = activated_agents.copy() if activated_agents else set()
-        if agents_to_draw and root_agent_name not in agents_to_draw:
-             # Add root only if sub-agents were activated, prevents showing only root on error
-             if any(agent != "error" for agent in agents_to_draw):
-                 agents_to_draw.add(root_agent_name)
+        nodes_to_draw = activated_agents.copy() if activated_agents else set()
+        if nodes_to_draw and nodes_to_draw != {"error"}:
+             if root_agent_name not in nodes_to_draw:
+                  if any(agent != "error" for agent in nodes_to_draw):
+                     nodes_to_draw.add(root_agent_name)
+        elif last_author == "error":
+             nodes_to_draw.add("error")
+        elif last_author:
+             nodes_to_draw.add(root_agent_name)
 
-
-        if not agents_to_draw or agents_to_draw == {"error"}:
-             # Show default or error state if no valid agents were activated
-             error_icon = AGENT_ICONS.get("error", "❓")
-             if agents_to_draw == {"error"}:
-                 mermaid_lines.append(f'    Error["{error_icon} Error"]:::active')
-             else:
-                mermaid_lines.append(f'    NoActivity["{AGENT_ICONS.get("assistant", "❓")} Idle"]:::default')
+        if not nodes_to_draw:
+             idle_icon = AGENT_ICONS.get("assistant", "❓")
+             mermaid_lines.append(f'    Idle["{idle_icon} Waiting..."]:::default') # Using ::: here ok for idle
         else:
-            # Define Nodes for activated agents + root
-            for name in agents_to_draw:
+            # Define Nodes
+            mermaid_lines.append('')
+            for name in nodes_to_draw:
                 icon = AGENT_ICONS.get(name, '❓')
-                node_class = "active" if last_author == name else "default"
-                mermaid_lines.append(f'    {name}["{icon} {name}"]:::{node_class}')
+                mermaid_lines.append(f'    {name}["{icon} {name}"]')
 
-            # Define Links from root to activated sub-agents
-            mermaid_lines.append('') # Blank line
-            for name in agents_to_draw:
-                if name != root_agent_name:
-                    mermaid_lines.append(f'    {root_agent_name} --> {name}')
+            # Define Links
+            mermaid_lines.append('')
+            if root_agent_name in nodes_to_draw:
+                for name in nodes_to_draw:
+                    if name != root_agent_name and name != "error":
+                        mermaid_lines.append(f'    {root_agent_name} --> {name}')
 
             # Define Styles
-            mermaid_lines.append('') # Blank line
+            mermaid_lines.append('')
             mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
             mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
+            mermaid_lines.append('')
 
-            # No separate class application needed with ::: syntax
+            # Apply Classes
+            for name in nodes_to_draw:
+                node_class = "active" if last_author == name else "default"
+                mermaid_lines.append(f'    class {name} {node_class}')
 
     except Exception as e:
         logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
@@ -219,10 +238,8 @@ def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], la
 
     return "\n".join(mermaid_lines) + "\n"
 
-# --- Initialize ADK ---
 try:
     adk_runner, current_adk_session_id = get_runner_and_session_id()
-    # Get root agent name for diagram generation
     root_agent_name = adk_runner.agent.name if adk_runner and adk_runner.agent else None
 except Exception as e:
     st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌")
@@ -231,7 +248,6 @@ except Exception as e:
     adk_runner = None
     current_adk_session_id = None
 
-# --- Sidebar UI ---
 with st.sidebar:
     # ... (logo/header/session info/clear button sections remain the same) ...
     col1, col2, col3 = st.columns([1, 4, 1])
@@ -265,19 +281,18 @@ with st.sidebar:
         st.session_state.pop(ADK_RUNNER_KEY, None)
         st.session_state.pop(ADK_SERVICE_KEY, None)
         st.session_state.pop(LAST_TURN_AUTHOR_KEY, None)
-        st.session_state.pop(ACTIVATED_AGENTS_KEY, None) # Clear activated agents
+        st.session_state.pop(ACTIVATED_AGENTS_KEY, None)
         logger.info("Cleared ADK keys from st.session_state.")
         st.toast("Session Cleared!")
         st.rerun()
 
     st.divider()
 
-    st.header("🤖 Agent Activity (Last Turn)") # Renamed header
-    # Get data from last turn stored in session state
+    st.header("🤖 Agent Activity (Last Turn)")
     last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
     activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
 
-    if root_agent_name: # Check if root agent name is known
+    if root_agent_name:
         try:
             mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
             st_mermaid(mermaid_syntax, height=350)
@@ -295,7 +310,7 @@ with st.sidebar:
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
-# --- Main Chat Interface UI ---
+# --- Main Chat Interface UI --- (Remains the same) ---
 st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
@@ -329,22 +344,17 @@ if prompt := st.chat_input("Ask about GCP resources, data, GitHub, GCP details, 
 
         with st.spinner("Agent is processing..."):
             try:
-                # Get all return values from the sync runner
                 agent_response_text, agent_response_author, activated_agents_set = run_adk_sync(
                     adk_runner, current_adk_session_id, USER_ID, prompt
                 )
-                # Store response and author in history
                 st.session_state[MESSAGE_HISTORY_KEY].append({"author": agent_response_author, "content": agent_response_text})
-                # Store author and activated agents for the next diagram render
                 st.session_state[LAST_TURN_AUTHOR_KEY] = agent_response_author
-                st.session_state[ACTIVATED_AGENTS_KEY] = activated_agents_set # Store the set
+                st.session_state[ACTIVATED_AGENTS_KEY] = activated_agents_set
             except Exception as e:
                 logger.exception("Error running ADK turn from Streamlit input:")
                 error_msg = f"An error occurred: {e}"
                 st.session_state[MESSAGE_HISTORY_KEY].append({"author": "error", "content": error_msg})
-                # Store error state for diagram
                 st.session_state[LAST_TURN_AUTHOR_KEY] = "error"
-                st.session_state[ACTIVATED_AGENTS_KEY] = {"error"} # Store error marker
+                st.session_state[ACTIVATED_AGENTS_KEY] = {"error"}
 
-        # Rerun to display updated chat and diagram
         st.rerun()
