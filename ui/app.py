@@ -198,29 +198,24 @@ def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], la
              idle_icon = AGENT_ICONS.get("assistant", "❓")
              mermaid_lines.append(f'    Idle["{idle_icon} Waiting..."]:::default')
         else:
-            # --- Define Nodes ---
             mermaid_lines.append('')
             for name in nodes_to_draw:
                 icon = AGENT_ICONS.get(name, '❓')
                 mermaid_lines.append(f'    {name}["{icon} {name}"]')
 
-            # --- Define Links ---
             mermaid_lines.append('')
             if root_agent_name in nodes_to_draw:
                 for name in nodes_to_draw:
                     if name != root_agent_name and name != "error":
                         mermaid_lines.append(f'    {root_agent_name} --> {name}')
 
-            # --- Define Styles (Class Definitions) ---
             mermaid_lines.append('')
             mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
             mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
             mermaid_lines.append('')
 
-            # --- Apply Classes using ::: syntax --- ## CORRECTED HERE ##
             for name in nodes_to_draw:
                 node_class = "active" if last_author == name else "default"
-                # Use the correct ::: syntax to apply the class
                 mermaid_lines.append(f'    {name}:::{node_class}')
 
     except Exception as e:
@@ -239,14 +234,18 @@ except Exception as e:
     adk_runner = None
     current_adk_session_id = None
 
+# --- Sidebar ---
 with st.sidebar:
-    col1, col2, col3 = st.columns([1, 4, 1])
-    with col2:
+    # --- Center Logo ---
+    img_col1, img_col2, img_col3 = st.columns([2, 4, 2])
+    with img_col2: # Logo in the middle column
         try:
-            st.image("assets/google-cloud-logo.png", width=200)
+            st.image("assets/google-cloud-logo.png", width=300)
         except FileNotFoundError:
             st.warning("Logo image not found.")
             st.header("☁️ Google Cloud")
+
+    # --- Center Title ---
     st.markdown(
     """
     <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
@@ -258,6 +257,7 @@ with st.sidebar:
 
     st.divider()
 
+    # --- Session Info & Reset Button (Can remain as is) ---
     st.header("⚙️ Session Info")
     if current_adk_session_id:
         st.success(f"Session Active ✅")
@@ -278,28 +278,39 @@ with st.sidebar:
 
     st.divider()
 
+    # --- Agent Activity Header ---
     st.header("🤖 Agent Activity (Last Turn)")
+
+    # --- Center Mermaid Diagram ---
     last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
     activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
 
-    if root_agent_name:
-        try:
-            mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
-            st_mermaid(mermaid_syntax, height=350)
+    # Use columns to center the mermaid chart and its expander
+    graph_col1, graph_col2, graph_col3 = st.columns([1, 4, 1]) # Adjust ratios as needed
 
-            with st.expander("Generated Mermaid Syntax (Debug)"):
-                st.code(mermaid_syntax, language='mermaid')
+    with graph_col2: # Mermaid chart in the middle column
+        if root_agent_name:
+            try:
+                mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
+                # Render the mermaid chart
+                st_mermaid(mermaid_syntax, height=350)
 
-        except Exception as e:
-             logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
-             st.error("Error displaying agent activity.")
-    else:
-        st.warning("Agent runner not initialized, cannot display activity.")
+                # Keep the expander associated with the chart
+                with st.expander("Generated Mermaid Syntax (Debug)"):
+                    st.code(mermaid_syntax, language='mermaid')
 
+            except Exception as e:
+                 logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
+                 st.error("Error displaying agent activity.")
+        else:
+            st.warning("Agent runner not initialized, cannot display activity.")
+
+    # --- Session ID Expander (Can remain as is, or be centered too if desired) ---
     with st.expander("Show Full Session ID"):
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
+# --- Main Chat Interface UI ---
 st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
