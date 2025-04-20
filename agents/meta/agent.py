@@ -16,7 +16,7 @@ from agents.llm_auditor.llm_auditor.agent import llm_auditor
 
 logger = logging.getLogger(__name__)
 
-# Get the model for the MetaAgent itself
+# Get the model for the MetaAgent itself 
 agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 
 # Define agent names
