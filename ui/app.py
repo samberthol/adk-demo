@@ -5,7 +5,7 @@ import time
 import os
 import asyncio
 import nest_asyncio
-from streamlit_mermaid import st_mermaid
+from streamlit_mermaid import st_mermaid # Import the component
 
 APP_NAME = "gcp_multi_agent_demo_streamlit"
 USER_ID = f"st_user_{APP_NAME}"
@@ -18,7 +18,7 @@ LAST_TURN_AUTHOR_KEY = f"last_author_{APP_NAME}"
 st.set_page_config(
     layout="wide",
     page_title="GCP Agent Hub",
-    page_icon="☁️" # Corrected icon rendering
+    page_icon="☁️"
     )
 
 try:
@@ -140,47 +140,59 @@ AGENT_ICONS = {
     "error": "🚨"
 }
 
+# --- Corrected Mermaid Syntax Generation --- ## MODIFIED HERE ##
 def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str:
+    """Generates Mermaid TD syntax for the agent hierarchy, highlighting the last author."""
     if not root_agent_instance:
         return "graph TD;\n  Error[ADK Runner/Agent not initialized];"
 
-    mermaid_lines = ["graph TD;"]
+    mermaid_lines = ["graph TD"] # Start with graph type on its own line
     try:
         root_name = getattr(root_agent_instance, 'name', 'UnknownRootAgent')
         sub_agents = getattr(root_agent_instance, 'sub_agents', [])
         sub_agent_names = [getattr(sa, 'name', f'UnknownSubAgent_{i}') for i, sa in enumerate(sub_agents)]
 
+        # --- Node Definitions ---
         root_icon = AGENT_ICONS.get(root_name, '❓')
-        mermaid_lines.append(f'  {root_name}["{root_icon} {root_name}"];')
-
+        mermaid_lines.append(f'    {root_name}["{root_icon} {root_name}"]') # Indent for readability
         for name in sub_agent_names:
             icon = AGENT_ICONS.get(name, '❓')
-            mermaid_lines.append(f'  {name}["{icon} {name}"];')
-            mermaid_lines.append(f'  {root_name} --> {name};')
+            mermaid_lines.append(f'    {name}["{icon} {name}"]')
 
-        mermaid_lines.append('  classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333;')
-        mermaid_lines.append('  classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000;')
-
-        mermaid_lines.append(f'  class {root_name} default;')
+        # --- Links ---
         for name in sub_agent_names:
-            mermaid_lines.append(f'  class {name} default;\n') # Added newline consistency
+            mermaid_lines.append(f'    {root_name} --> {name}')
 
+        # --- Style Definitions ---
+        mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
+        mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
+
+        # --- Apply Default Style ---
+        mermaid_lines.append(f'    class {root_name} default')
+        for name in sub_agent_names:
+            mermaid_lines.append(f'    class {name} default')
+
+        # --- Apply Active Style ---
         if last_author and (last_author == root_name or last_author in sub_agent_names):
-            mermaid_lines.append(f'  class {last_author} active;')
-        elif last_author:
-             logger.warning(f"Last author '{last_author}' not found in root/sub-agent list for highlighting.")
+            mermaid_lines.append(f'    class {last_author} active')
+        # Optional: Log if author not found (already present in previous code)
+        # elif last_author:
+        #      logger.warning(f"Last author '{last_author}' not found in root/sub-agent list for highlighting.")
 
     except Exception as e:
         logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
-        mermaid_lines = ["graph TD;", "  ErrorGeneratingGraph[Error generating graph];"]
+        # Return a simple error graph if generation fails
+        return "graph TD;\n  ErrorGeneratingGraph[Error generating graph];"
 
+    # Join lines with newline character
     return "\n".join(mermaid_lines)
+# --- End Correction ---
 
 try:
     adk_runner, current_adk_session_id = get_runner_and_session_id()
     root_agent_instance = adk_runner.agent if adk_runner else None
 except Exception as e:
-    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌") # Corrected icon rendering
+    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌")
     logger.exception("Critical ADK Initialization/Session Validation failed.")
     root_agent_instance = None
     adk_runner = None
@@ -193,7 +205,7 @@ with st.sidebar:
             st.image("assets/google-cloud-logo.png", width=200)
         except FileNotFoundError:
             st.warning("Logo image not found.")
-            st.header("☁️ Google Cloud") # Corrected icon rendering
+            st.header("☁️ Google Cloud")
     st.markdown(
     """
     <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
@@ -205,13 +217,13 @@ with st.sidebar:
 
     st.divider()
 
-    st.header("⚙️ Session Info") # Corrected icon rendering
+    st.header("⚙️ Session Info")
     if current_adk_session_id:
-        st.success(f"Session Active ✅") # Corrected icon rendering
+        st.success(f"Session Active ✅")
     else:
-         st.error("Session Inactive ❌") # Corrected icon rendering
+         st.error("Session Inactive ❌")
 
-    if st.button("🔄 Clear Chat & Reset Session"): # Corrected icon rendering
+    if st.button("🔄 Clear Chat & Reset Session"):
         logger.info(f"Clearing chat history and resetting session for user {USER_ID}, ADK session {current_adk_session_id}")
         st.session_state.pop(MESSAGE_HISTORY_KEY, None)
         st.session_state.pop(ADK_SESSION_ID_KEY, None)
@@ -224,27 +236,31 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Corrected Agent Architecture Diagram --- ## MODIFIED HERE ##
-    st.header("🤖 Agent Architecture") # Corrected icon rendering
+    st.header("🤖 Agent Architecture")
     last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
     if root_agent_instance:
         try:
-            # Generate the dynamic syntax
+            # Generate the dynamic syntax using the corrected function
             mermaid_syntax = generate_mermaid_syntax(root_agent_instance, last_author)
             # Render using st_mermaid
             st_mermaid(mermaid_syntax, height=350) # Adjusted height slightly
+
+            # --- Keep Debugging Expander --- # Optional, but useful
+            with st.expander("Generated Mermaid Syntax (Debug)"):
+                st.code(mermaid_syntax, language='mermaid')
+            # --- End Debugging ---
+
         except Exception as e:
              logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
              st.error("Error displaying agent architecture.")
     else:
         st.warning("Agent runner not initialized, cannot display architecture.")
-    # --- End Correction ---
 
     with st.expander("Show Full Session ID"):
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
-st.title("☁️ GCP Agent Hub") # Corrected icon rendering
+st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
 st.info(
@@ -257,7 +273,7 @@ st.info(
     * **Chat:** General conversation with Mistral.\n
     Ask me things like "list my VMs", "run a query to count users", "find langchain repos on github", "what is Cloud Run?", or "tell me a joke".
     """,
-    icon="ℹ️" # Corrected icon rendering
+    icon="ℹ️"
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:
@@ -271,7 +287,7 @@ for message in st.session_state[MESSAGE_HISTORY_KEY]:
 
 if prompt := st.chat_input("Ask about GCP resources, data, GitHub, GCP details, or just chat..."):
     if not current_adk_session_id or not adk_runner:
-         st.error("Agent session could not be established. Cannot process request.", icon="❌") # Corrected icon rendering
+         st.error("Agent session could not be established. Cannot process request.", icon="❌")
     else:
         st.session_state[MESSAGE_HISTORY_KEY].append({"author": "user", "content": prompt})
 
