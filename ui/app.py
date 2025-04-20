@@ -217,16 +217,12 @@ with st.sidebar:
     st.divider()
 
     st.header("🤖 Agent Architecture")
-    last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
-    if root_agent_instance:
-        mermaid_syntax = generate_mermaid_syntax(root_agent_instance, last_author)
-        # Use st_mermaid from the imported component library
-        st_mermaid(mermaid_syntax, height=300) # Use st_mermaid, optionally set height
-    else:
-        st.warning("Agent runner not initialized, cannot display architecture.")
-
-    with st.expander("Show Full Session ID"):
-        st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
+    simple_graph = """
+    graph TD;
+        A[MetaAgent] --> B(SubAgent1);
+        A --> C(SubAgent2);
+    """
+    st_mermaid(simple_graph) # Use the correct function call
 
 
 st.title("☁️ GCP Agent Hub")
