@@ -15,3 +15,5 @@ mistralai[gcp]
 litellm
 pydantic
 streamlit-mermaid
+PyGithub
+python-dotenv

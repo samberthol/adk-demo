@@ -5,7 +5,7 @@ from typing import Optional, List
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-# Imports needed for Callback (Keep these)
+# Imports needed for Callback
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest
 from google.genai.types import Content
@@ -14,6 +14,8 @@ from google.genai.types import Content
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
+# --- ADD IMPORT FOR NEW A2A BRIDGE AGENT ---
+from ..a2a_langchain_bridge.agent import a2a_langchain_bridge_agent
 # Assuming llm_auditor was correctly copied by Dockerfile and is importable
 try:
     from agents.llm_auditor.llm_auditor.agent import llm_auditor
@@ -25,21 +27,16 @@ except ImportError:
     LLM_AUDITOR_LOADED = False
     LLM_AUDITOR_NAME = "llm_auditor (Not Loaded)"
 
-# --- REMOVE st.set_page_config() FROM HERE ---
-# import streamlit as st # Remove this import if only used for set_page_config
-# st.set_page_config(...) # REMOVE THIS LINE
-# --- END REMOVAL ---
-
 logger = logging.getLogger(__name__)
 
 # Get the model for the MetaAgent itself
-agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
+agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-1.5-flash') # Updated model name based on your fetched file
 
 # Define agent names
 MISTRAL_AGENT_NAME = "MistralChatAgent"
 # LLM_AUDITOR_NAME defined above after import attempt
 
-# --- Callback Function to Filter Mistral History --- (Keep this)
+# --- Callback Function to Filter Mistral History ---
 def _filter_mistral_history(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> None:
@@ -53,7 +50,7 @@ def _filter_mistral_history(
 
     logger.info(f"[{callback_context.agent_name}] Running before_model_callback to filter roles.")
     filtered_contents: List[Content] = []
-    allowed_roles = {'user', 'assistant', 'system'}
+    allowed_roles = {'user', 'assistant', 'system'} # Mistral via LiteLLM might support 'system'
 
     for content_item in llm_request.contents:
         if isinstance(content_item, Content) and hasattr(content_item, 'role'):
@@ -63,14 +60,14 @@ def _filter_mistral_history(
                 logger.debug(f"[{callback_context.agent_name}] Filtering out message with role: {content_item.role}")
         else:
             logger.warning(f"[{callback_context.agent_name}] Encountered unexpected item type in request contents: {type(content_item)}")
-            filtered_contents.append(content_item)
+            filtered_contents.append(content_item) # Keep unexpected items? Or filter? Keeping for now.
 
     llm_request.contents = filtered_contents
     logger.info(f"[{callback_context.agent_name}] Finished filtering roles. Message count now: {len(llm_request.contents)}")
 
     return None
 
-# --- Instantiate Mistral Agent using LlmAgent and LiteLlm --- (Keep this)
+# --- Instantiate Mistral Agent using LlmAgent and LiteLlm ---
 mistral_agent = None
 mistral_model_id = os.environ.get('MISTRAL_MODEL_ID')
 
@@ -83,7 +80,7 @@ if mistral_model_id:
             model=LiteLlm(model=litellm_model_string),
             description="A conversational agent powered by Mistral via Vertex AI (using LiteLLM).",
             instruction="You are a helpful conversational AI assistant based on Mistral models. Respond directly to the user's query.",
-            before_model_callback=_filter_mistral_history # Keep callback
+            before_model_callback=_filter_mistral_history
         )
         logger.info(f"Successfully configured {MISTRAL_AGENT_NAME} as LlmAgent with LiteLlm and history filter.")
     except Exception as e:
@@ -94,7 +91,7 @@ else:
     mistral_agent = None
 
 
-# --- Build Active Sub-Agents List --- (Keep this)
+# --- Build Active Sub-Agents List ---
 active_sub_agents = [resource_agent, data_science_agent, githubagent]
 
 if llm_auditor:
@@ -108,20 +105,27 @@ if mistral_agent:
 else:
     logger.warning(f"{MISTRAL_AGENT_NAME} could not be initialized and will not be available.")
 
+# --- ADD A2A BRIDGE AGENT TO THE LIST ---
+active_sub_agents.append(a2a_langchain_bridge_agent)
+logger.info(f"Adding '{a2a_langchain_bridge_agent.name}' to sub-agents list.")
 
-# --- Define Meta Agent --- (Keep this)
+
+# --- Define Meta Agent ---
 meta_agent = LlmAgent(
     name="MetaAgent",
-    model=agent_model,
-    description="A helpful assistant coordinating specialized agents (resources, data, GitHub, GCP Support/Auditor) and a general conversational agent (Mistral).",
+    model=agent_model, # Uses gemini-1.5-flash per fetched file
+    description="A helpful assistant coordinating specialized agents (resources, data, GitHub, GCP Support/Auditor, A2A LangGraph Bridge) and a general conversational agent (Mistral).",
     instruction=(
         "You are the primary assistant. Analyze the user's request.\n"
         "- If it involves managing cloud resources (like creating a VM or dataset), delegate the task to the 'ResourceAgent'.\n"
         "- If it involves querying data from BigQuery, delegate the task to the 'DataScienceAgent'.\n"
         "- If it involves searching GitHub or getting information from a GitHub repository, delegate the task to the 'githubagent'.\n"
-        f"- If it asks for information about GCP services, documentation, code examples, or needs factual verification about GCP, delegate the task to the '{LLM_AUDITOR_NAME}' agent. Provide the user's question or the statement to verify as input to the auditor.\n"
+        f"- If it asks for information about GCP services, documentation, code examples, or needs factual verification about GCP, delegate the task to the '{LLM_AUDITOR_NAME}'. Provide the user's question or the statement to verify as input to the auditor.\n"
+        # --- ADD ROUTING INSTRUCTION FOR A2A BRIDGE ---
+        f"- If the request uses phrases like 'ask langchain', 'using langgraph', or 'external agent', delegate the task to the '{a2a_langchain_bridge_agent.name}'.\n"
+        # --- END A2A ROUTING INSTRUCTION ---
         f"- If the request appears to be general conversation, requires summarization, explanation, brainstorming, or doesn't clearly fit other agents, delegate the task to the '{MISTRAL_AGENT_NAME}'.\n"
         "Clearly present the results from the specialist agents or the chat agent back to the user."
     ),
-    sub_agents=active_sub_agents,
+    sub_agents=active_sub_agents, # Pass the list including the new agent
 )
