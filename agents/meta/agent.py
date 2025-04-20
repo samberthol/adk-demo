@@ -91,7 +91,6 @@ else:
     mistral_agent = None
 
 
-# --- Build Active Sub-Agents List ---
 active_sub_agents = [resource_agent, data_science_agent, githubagent]
 
 if llm_auditor:
@@ -127,5 +126,5 @@ meta_agent = LlmAgent(
         f"- If the request appears to be general conversation, requires summarization, explanation, brainstorming, or doesn't clearly fit other agents, delegate the task to the '{MISTRAL_AGENT_NAME}'.\n"
         "Clearly present the results from the specialist agents or the chat agent back to the user."
     ),
-    sub_agents=active_sub_agents, # Pass the list including the new agent
+    sub_agents=active_sub_agents, # Pass the list including the new agent 
 )

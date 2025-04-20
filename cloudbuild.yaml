@@ -1,6 +1,7 @@
 # cloudbuild.yaml
 # Builds TWO images: Python App (Streamlit) and Go MCP Server.
-# Deploys TWO Cloud Run services.
+# Deploys TWO Cloud Run services. 
+
 
 steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
