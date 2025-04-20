@@ -5,7 +5,7 @@ import time
 import os
 import asyncio
 import nest_asyncio
-from streamlit_mermaid import st_mermaid # Import the component
+from streamlit_mermaid import st_mermaid
 
 APP_NAME = "gcp_multi_agent_demo_streamlit"
 USER_ID = f"st_user_{APP_NAME}"
@@ -42,6 +42,7 @@ except RuntimeError as e:
          logger.error(f"Error applying nest_asyncio: {e}")
 
 def get_runner_and_session_id():
+    # ... (function remains the same as previous correct version) ...
     if ADK_SERVICE_KEY not in st.session_state:
         logger.info("--- ADK Init: Creating new InMemorySessionService in st.session_state.")
         st.session_state[ADK_SERVICE_KEY] = InMemorySessionService()
@@ -86,7 +87,9 @@ def get_runner_and_session_id():
 
     return runner, session_id
 
+
 async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> tuple[str, str]:
+    # ... (function remains the same as previous correct version) ...
     logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id} ---")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
@@ -116,6 +119,7 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
     return final_response_text, final_response_author
 
 def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> tuple[str, str]:
+    # ... (function remains the same as previous correct version) ...
     try:
         text, author = asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
         return text, author
@@ -125,6 +129,7 @@ def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_tex
     except Exception as e:
         logger.exception("Unexpected exception during run_adk_sync:")
         return f"An unexpected error occurred: {e}. Check logs.", "error"
+
 
 AGENT_ICONS = {
     "user": "🧑‍💻",
@@ -140,13 +145,13 @@ AGENT_ICONS = {
     "error": "🚨"
 }
 
-# --- Corrected Mermaid Syntax Generation --- ## MODIFIED HERE ##
+# --- Explicit Newline Mermaid Syntax Generation --- ## MODIFIED HERE ##
 def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str:
-    """Generates Mermaid TD syntax for the agent hierarchy, highlighting the last author."""
+    """Generates Mermaid TD syntax with explicit newlines."""
     if not root_agent_instance:
-        return "graph TD;\n  Error[ADK Runner/Agent not initialized];"
+        return "graph TD;\n  Error[ADK Runner/Agent not initialized];\n" # Ensure newline
 
-    mermaid_lines = ["graph TD"] # Start with graph type on its own line
+    mermaid_lines = ["graph TD"] # Start list
     try:
         root_name = getattr(root_agent_instance, 'name', 'UnknownRootAgent')
         sub_agents = getattr(root_agent_instance, 'sub_agents', [])
@@ -154,38 +159,38 @@ def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str
 
         # --- Node Definitions ---
         root_icon = AGENT_ICONS.get(root_name, '❓')
-        mermaid_lines.append(f'    {root_name}["{root_icon} {root_name}"]') # Indent for readability
+        mermaid_lines.append(f'  {root_name}["{root_icon} {root_name}"]') # Node text ends line
         for name in sub_agent_names:
             icon = AGENT_ICONS.get(name, '❓')
-            mermaid_lines.append(f'    {name}["{icon} {name}"]')
+            mermaid_lines.append(f'  {name}["{icon} {name}"]')
 
         # --- Links ---
         for name in sub_agent_names:
-            mermaid_lines.append(f'    {root_name} --> {name}')
+            mermaid_lines.append(f'  {root_name} --> {name}') # Links end line
 
         # --- Style Definitions ---
-        mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
-        mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
+        mermaid_lines.append('') # Add blank line before styles for clarity
+        mermaid_lines.append('  classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
+        mermaid_lines.append('  classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
+        mermaid_lines.append('') # Add blank line after styles
 
         # --- Apply Default Style ---
-        mermaid_lines.append(f'    class {root_name} default')
+        mermaid_lines.append(f'  class {root_name} default')
         for name in sub_agent_names:
-            mermaid_lines.append(f'    class {name} default')
+            mermaid_lines.append(f'  class {name} default')
 
         # --- Apply Active Style ---
         if last_author and (last_author == root_name or last_author in sub_agent_names):
-            mermaid_lines.append(f'    class {last_author} active')
-        # Optional: Log if author not found (already present in previous code)
-        # elif last_author:
-        #      logger.warning(f"Last author '{last_author}' not found in root/sub-agent list for highlighting.")
+            mermaid_lines.append(f'  class {last_author} active')
+        elif last_author:
+             logger.warning(f"Last author '{last_author}' not found in root/sub-agent list for highlighting.")
 
     except Exception as e:
         logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
-        # Return a simple error graph if generation fails
-        return "graph TD;\n  ErrorGeneratingGraph[Error generating graph];"
+        return "graph TD;\n  ErrorGeneratingGraph[Error generating graph];\n"
 
-    # Join lines with newline character
-    return "\n".join(mermaid_lines)
+    # Join lines with newline character AND add trailing newline for safety
+    return "\n".join(mermaid_lines) + "\n"
 # --- End Correction ---
 
 try:
@@ -199,6 +204,7 @@ except Exception as e:
     current_adk_session_id = None
 
 with st.sidebar:
+    # ... (logo/header section remains the same) ...
     col1, col2, col3 = st.columns([1, 4, 1])
     with col2:
         try:
@@ -240,15 +246,13 @@ with st.sidebar:
     last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
     if root_agent_instance:
         try:
-            # Generate the dynamic syntax using the corrected function
             mermaid_syntax = generate_mermaid_syntax(root_agent_instance, last_author)
-            # Render using st_mermaid
-            st_mermaid(mermaid_syntax, height=350) # Adjusted height slightly
+            # Use st_mermaid from the imported component library
+            st_mermaid(mermaid_syntax, height=350)
 
-            # --- Keep Debugging Expander --- # Optional, but useful
+            # Keep Debugging Expander
             with st.expander("Generated Mermaid Syntax (Debug)"):
                 st.code(mermaid_syntax, language='mermaid')
-            # --- End Debugging ---
 
         except Exception as e:
              logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
