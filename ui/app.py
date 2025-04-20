@@ -6,7 +6,7 @@ import os
 import asyncio
 import nest_asyncio
 from streamlit_mermaid import st_mermaid
-from typing import Tuple, Set # Added Set
+from typing import Tuple, Set
 
 APP_NAME = "gcp_multi_agent_demo_streamlit"
 USER_ID = f"st_user_{APP_NAME}"
@@ -44,7 +44,6 @@ except RuntimeError as e:
          logger.error(f"Error applying nest_asyncio: {e}")
 
 def get_runner_and_session_id():
-    # ... (function remains the same) ...
     if ADK_SERVICE_KEY not in st.session_state:
         logger.info("--- ADK Init: Creating new InMemorySessionService in st.session_state.")
         st.session_state[ADK_SERVICE_KEY] = InMemorySessionService()
@@ -89,13 +88,12 @@ def get_runner_and_session_id():
 
     return runner, session_id
 
-# --- Async Runner Function with DETAILED LOGGING --- ## REVERTED/MODIFIED HERE ##
 async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> Tuple[str, str, Set[str]]:
     logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id}, User: {user_id} ---")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
     final_response_author = "assistant"
-    last_text_event_author = "assistant" # Track author of the most recent text event
+    last_text_event_author = "assistant"
     activated_agents_set = set()
     start_time = time.time()
     event_counter = 0
@@ -108,7 +106,6 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
             content_type = "N/A"
             text_preview = ""
 
-            # Determine content type and preview
             if event.content and event.content.parts:
                  part = event.content.parts[0]
                  if hasattr(part, 'text') and part.text is not None:
@@ -122,20 +119,16 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
                  elif hasattr(part, 'function_response') and part.function_response is not None:
                      content_type = "function_response"
                      fr = part.function_response
-                     text_preview = f"FunctionResponse(name={getattr(fr, 'name', 'N/A')})" # Preview response content if needed
+                     text_preview = f"FunctionResponse(name={getattr(fr, 'name', 'N/A')})"
 
-            # --- Detailed Event Logging ---
             log_msg = f"--- ADK Event {event_counter}: Author='{author}', Type='{content_type}', Content='{text_preview}'"
-            logger.info(log_msg) # Use INFO level for visibility
-            # --- End Logging ---
+            logger.info(log_msg)
 
-            # Track activated agents
             if author and author != 'user':
                 activated_agents_set.add(author)
 
-            # Update based on text content
             if has_text:
-                 final_response_text = event.content.parts[0].text # Get full text
+                 final_response_text = event.content.parts[0].text
                  last_text_event_author = author or "assistant"
                  logger.info(f"-------> Updated last_text_event_author to '{last_text_event_author}' (Event {event_counter})")
 
@@ -153,16 +146,14 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
     finally:
         end_time = time.time()
         duration = end_time - start_time
-        final_response_author = last_text_event_author # Assign last text author at the end
+        final_response_author = last_text_event_author
         logger.info(f"--- ADK Run Async: Turn execution completed in {duration:.2f} seconds.")
         logger.info(f"--- ADK Run Async: Final Author Determined: {final_response_author}")
         logger.info(f"--- ADK Run Async: Activated agents this turn: {activated_agents_set}")
 
     return final_response_text, final_response_author, activated_agents_set
-# --- End Modification ---
 
 def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> Tuple[str, str, Set[str]]:
-    # ... (function remains the same) ...
     try:
         text, author, activated_set = asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
         return text, author, activated_set
@@ -188,7 +179,6 @@ AGENT_ICONS = {
 }
 
 def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], last_author: str = None) -> str:
-    # ... (function remains the same using 'class NodeId className' syntax) ...
     if not root_agent_name:
         return "graph TD;\n  Error[ADK Runner/Agent not initialized];\n"
 
@@ -206,31 +196,32 @@ def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], la
 
         if not nodes_to_draw:
              idle_icon = AGENT_ICONS.get("assistant", "❓")
-             mermaid_lines.append(f'    Idle["{idle_icon} Waiting..."]:::default') # Using ::: here ok for idle
+             mermaid_lines.append(f'    Idle["{idle_icon} Waiting..."]:::default')
         else:
-            # Define Nodes
+            # --- Define Nodes ---
             mermaid_lines.append('')
             for name in nodes_to_draw:
                 icon = AGENT_ICONS.get(name, '❓')
                 mermaid_lines.append(f'    {name}["{icon} {name}"]')
 
-            # Define Links
+            # --- Define Links ---
             mermaid_lines.append('')
             if root_agent_name in nodes_to_draw:
                 for name in nodes_to_draw:
                     if name != root_agent_name and name != "error":
                         mermaid_lines.append(f'    {root_agent_name} --> {name}')
 
-            # Define Styles
+            # --- Define Styles (Class Definitions) ---
             mermaid_lines.append('')
             mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
             mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
             mermaid_lines.append('')
 
-            # Apply Classes
+            # --- Apply Classes using ::: syntax --- ## CORRECTED HERE ##
             for name in nodes_to_draw:
                 node_class = "active" if last_author == name else "default"
-                mermaid_lines.append(f'    class {name} {node_class}')
+                # Use the correct ::: syntax to apply the class
+                mermaid_lines.append(f'    {name}:::{node_class}')
 
     except Exception as e:
         logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
@@ -249,7 +240,6 @@ except Exception as e:
     current_adk_session_id = None
 
 with st.sidebar:
-    # ... (logo/header/session info/clear button sections remain the same) ...
     col1, col2, col3 = st.columns([1, 4, 1])
     with col2:
         try:
@@ -310,7 +300,6 @@ with st.sidebar:
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
-# --- Main Chat Interface UI --- (Remains the same) ---
 st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
