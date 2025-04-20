@@ -42,7 +42,7 @@ except RuntimeError as e:
          logger.error(f"Error applying nest_asyncio: {e}")
 
 def get_runner_and_session_id():
-    # ... (function remains the same as previous correct version) ...
+    # ... (function remains the same) ...
     if ADK_SERVICE_KEY not in st.session_state:
         logger.info("--- ADK Init: Creating new InMemorySessionService in st.session_state.")
         st.session_state[ADK_SERVICE_KEY] = InMemorySessionService()
@@ -89,7 +89,7 @@ def get_runner_and_session_id():
 
 
 async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> tuple[str, str]:
-    # ... (function remains the same as previous correct version) ...
+    # ... (function remains the same) ...
     logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id} ---")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
@@ -118,8 +118,9 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
 
     return final_response_text, final_response_author
 
+
 def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> tuple[str, str]:
-    # ... (function remains the same as previous correct version) ...
+    # ... (function remains the same) ...
     try:
         text, author = asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
         return text, author
@@ -145,51 +146,43 @@ AGENT_ICONS = {
     "error": "🚨"
 }
 
-# --- Explicit Newline Mermaid Syntax Generation --- ## MODIFIED HERE ##
+# --- Mermaid Syntax Generation with Direct Class Styling --- ## MODIFIED HERE ##
 def generate_mermaid_syntax(root_agent_instance, last_author: str = None) -> str:
-    """Generates Mermaid TD syntax with explicit newlines."""
+    """Generates Mermaid TD syntax applying styles directly to nodes."""
     if not root_agent_instance:
-        return "graph TD;\n  Error[ADK Runner/Agent not initialized];\n" # Ensure newline
+        return "graph TD;\n  Error[ADK Runner/Agent not initialized];\n"
 
-    mermaid_lines = ["graph TD"] # Start list
+    mermaid_lines = ["graph TD"]
     try:
         root_name = getattr(root_agent_instance, 'name', 'UnknownRootAgent')
         sub_agents = getattr(root_agent_instance, 'sub_agents', [])
         sub_agent_names = [getattr(sa, 'name', f'UnknownSubAgent_{i}') for i, sa in enumerate(sub_agents)]
 
-        # --- Node Definitions ---
+        # --- Define Nodes and Apply Style Directly ---
         root_icon = AGENT_ICONS.get(root_name, '❓')
-        mermaid_lines.append(f'  {root_name}["{root_icon} {root_name}"]') # Node text ends line
+        root_class = "active" if last_author == root_name else "default"
+        # Syntax: NodeId["Display Text"]:::className
+        mermaid_lines.append(f'    {root_name}["{root_icon} {root_name}"]:::{root_class}')
+
         for name in sub_agent_names:
             icon = AGENT_ICONS.get(name, '❓')
-            mermaid_lines.append(f'  {name}["{icon} {name}"]')
+            node_class = "active" if last_author == name else "default"
+            mermaid_lines.append(f'    {name}["{icon} {name}"]:::{node_class}')
+            mermaid_lines.append(f'    {root_name} --> {name}') # Links remain separate
 
-        # --- Links ---
-        for name in sub_agent_names:
-            mermaid_lines.append(f'  {root_name} --> {name}') # Links end line
+        # --- Define the Classes (Still Needed) ---
+        mermaid_lines.append('')
+        mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
+        mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
+        mermaid_lines.append('')
 
-        # --- Style Definitions ---
-        mermaid_lines.append('') # Add blank line before styles for clarity
-        mermaid_lines.append('  classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
-        mermaid_lines.append('  classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
-        mermaid_lines.append('') # Add blank line after styles
-
-        # --- Apply Default Style ---
-        mermaid_lines.append(f'  class {root_name} default')
-        for name in sub_agent_names:
-            mermaid_lines.append(f'  class {name} default')
-
-        # --- Apply Active Style ---
-        if last_author and (last_author == root_name or last_author in sub_agent_names):
-            mermaid_lines.append(f'  class {last_author} active')
-        elif last_author:
-             logger.warning(f"Last author '{last_author}' not found in root/sub-agent list for highlighting.")
+        # --- Remove Old Class Application Section ---
+        # No longer need separate "class NodeId className" lines
 
     except Exception as e:
         logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
         return "graph TD;\n  ErrorGeneratingGraph[Error generating graph];\n"
 
-    # Join lines with newline character AND add trailing newline for safety
     return "\n".join(mermaid_lines) + "\n"
 # --- End Correction ---
 
@@ -204,7 +197,7 @@ except Exception as e:
     current_adk_session_id = None
 
 with st.sidebar:
-    # ... (logo/header section remains the same) ...
+    # ... (logo/header/session info/clear button sections remain the same) ...
     col1, col2, col3 = st.columns([1, 4, 1])
     with col2:
         try:
@@ -247,8 +240,7 @@ with st.sidebar:
     if root_agent_instance:
         try:
             mermaid_syntax = generate_mermaid_syntax(root_agent_instance, last_author)
-            # Use st_mermaid from the imported component library
-            st_mermaid(mermaid_syntax, height=350)
+            st_mermaid(mermaid_syntax, height=350) # Use the component
 
             # Keep Debugging Expander
             with st.expander("Generated Mermaid Syntax (Debug)"):
@@ -264,6 +256,7 @@ with st.sidebar:
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
 
+# --- Main Chat Interface UI --- (Remains the same) ---
 st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
