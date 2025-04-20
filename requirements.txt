@@ -6,11 +6,11 @@ google-auth
 google-adk
 pandas
 google-api-core
-google-genai>=1.10.0
+google-genai
 nest-asyncio
 requests
 google-cloud-aiplatform
 httpx
-google-cloud-aiplatform>=1.49.0
 mistralai[gcp]
 litellm
+pydantic
