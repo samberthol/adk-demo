@@ -20,7 +20,7 @@ LANGCHAIN_A2A_ENDPOINT = os.environ.get("LANGCHAIN_A2A_ENDPOINT")
 POLLING_INTERVAL_SECONDS = 2  # How often to check task status
 MAX_POLLING_ATTEMPTS = 15     # Max number of times to poll (~30 seconds total)
 
-# --- Helper function refactored from class method ---
+# --- Helper function ---
 def _send_a2a_json_rpc_request(method: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """Helper function to send a JSON-RPC request."""
     if not LANGCHAIN_A2A_ENDPOINT:
@@ -68,8 +68,8 @@ def _send_a2a_json_rpc_request(method: str, params: Dict[str, Any]) -> Dict[str,
         logger.error(f"Failed to decode JSON response from {LANGCHAIN_A2A_ENDPOINT}: {e}. Response text: {response.text}")
         raise RuntimeError(f"Invalid JSON response received from LangGraph agent.") from e
 
-# --- Tool logic defined as a function ---
-def langchain_a2a_func(query: str) -> dict:
+# --- Tool logic defined as a function with a descriptive name ---
+def langchain_a2a_json_rpc_client(query: str) -> dict:
     """
     Sends a query as a task to a configured external LangGraph agent using the
     A2A JSON-RPC protocol (createTask/getTask) and returns its response.
@@ -79,12 +79,11 @@ def langchain_a2a_func(query: str) -> dict:
 
     Returns:
         A dictionary containing the response text from the LangGraph agent
-        under the 'result' key, or an error message under the 'error' key.
+        under the 'result' key ('status': 'success'), or an error message under the 'error' key ('status': 'error').
     """
     try:
         # --- 1. Create Task ---
         logger.info(f"Creating A2A task for query: '{query}'")
-        # Structure based on A2A spec: place query in messages[0].parts[0].text
         create_params = {
             "task": {
                 "messages": [
@@ -93,7 +92,6 @@ def langchain_a2a_func(query: str) -> dict:
                         "parts": [{"type": "text", "text": query}]
                     }
                 ]
-                # Add other Task fields if needed by the LangGraph agent sample
             }
         }
         create_response = _send_a2a_json_rpc_request("createTask", create_params)
@@ -119,7 +117,6 @@ def langchain_a2a_func(query: str) -> dict:
 
             if task_state == "completed":
                 logger.info(f"Task {task_id} completed.")
-                # Extract result from artifacts, assuming text response
                 artifacts = task_data.get("artifacts", [])
                 if artifacts and artifacts[0].get("messages"):
                      parts = artifacts[0]["messages"][0].get("parts", [])
@@ -140,23 +137,14 @@ def langchain_a2a_func(query: str) -> dict:
         return {"status": "error", "error": "The request to the LangGraph agent timed out waiting for task completion."}
 
     except ValueError as e:
-         # Configuration error (e.g., missing endpoint)
          return {"status": "error", "error": f"Configuration Error: {e}"}
     except RuntimeError as e:
-         # Communication error (e.g., network issue, JSON-RPC error)
          return {"status": "error", "error": f"Communication Error: {e}"}
     except Exception as e:
-        logger.exception(f"An unexpected error occurred in langchain_a2a_func:")
+        logger.exception(f"An unexpected error occurred in langchain_a2a_json_rpc_client:")
         return {"status": "error", "error": f"An unexpected error occurred during A2A communication: {str(e)}"}
 
 
-# --- Instantiate the tool using FunctionTool ---
-langchain_a2a_tool = FunctionTool(
-    func=langchain_a2a_func,
-    # Provide name and description for the LLM
-    name="LangchainA2AJsonRpcClient",
-    description=(
-        "Sends a query as a task to a configured external LangGraph agent using the "
-        "A2A JSON-RPC protocol (createTask/getTask) and returns its response."
-    )
-)
+# --- Instantiate the tool using FunctionTool (Corrected: only func argument) ---
+# The name and description are derived from the function definition above.
+langchain_a2a_tool = FunctionTool(func=langchain_a2a_json_rpc_client)

@@ -20,7 +20,7 @@ class A2ALangchainBridgeAgent(Agent):
         """Initializes the agent with the necessary tool."""
         # The list of tools this agent can directly use
         super().__init__(tools=[langchain_a2a_tool])
-        logger.info(f"Initialized {self.name} with tool: {langchain_a2a_tool.name}")
+        logger.info(f"Initialized {self.name} with tool: {langchain_a2a_tool.name}") # .name should now work correctly
 
     def __call__(self, message: Content) -> Content | None:
         """
@@ -49,15 +49,23 @@ class A2ALangchainBridgeAgent(Agent):
             return Content(role=self.name, parts=[Part(text="Please provide a query for the LangGraph agent.")])
 
         # Call the tool instance directly
-        tool_response = self.tools[0](query=query_for_tool)
+        # ADK expects the tool function to be called with keyword arguments
+        tool_response_dict = self.tools[0](query=query_for_tool) # self.tools[0] refers to langchain_a2a_tool
+
+        # Extract the response text or error message from the dictionary
+        if tool_response_dict.get("status") == "success":
+            response_text = tool_response_dict.get("result", "Agent returned success but no result text.")
+        else:
+            response_text = tool_response_dict.get("error", "An unknown error occurred in the A2A tool.")
+
 
         # Wrap the tool's string response in an ADK Content object
         response_content = Content(
-            role=self.name,
-            parts=[Part(text=tool_response)]
+            role=self.name, # Role should be the agent's name
+            parts=[Part(text=response_text)]
         )
         logger.info(f"Returning response from {self.name}.")
-        logger.debug(f"Response content: {tool_response}")
+        logger.debug(f"Response content: {response_text}")
         return response_content
 
 # Instantiate the agent for import by the MetaAgent
