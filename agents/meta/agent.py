@@ -10,7 +10,9 @@ from google.adk.models.lite_llm import LiteLlm
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
-from agents.llm_auditor.agent import llm_auditor
+# --- Corrected Import for LLM Auditor Agent ---
+# Import from the nested 'llm_auditor' directory
+from agents.llm_auditor.llm_auditor.agent import llm_auditor
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,6 @@ if mistral_model_id:
         logger.info(f"Successfully configured {MISTRAL_AGENT_NAME} as LlmAgent with LiteLlm.")
     except Exception as e:
         logger.error(f"Failed to configure {MISTRAL_AGENT_NAME} with LiteLlm: {e}", exc_info=True)
-        # Set to None if init fails, handle below
         mistral_agent = None
 else:
     logger.warning(f"MISTRAL_MODEL_ID environment variable not set. {MISTRAL_AGENT_NAME} will not be available.")
@@ -47,26 +48,24 @@ else:
 
 
 # --- Build Active Sub-Agents List ---
-# Start with existing agents that should always be present
 active_sub_agents = [resource_agent, data_science_agent, githubagent]
 
-# Add Mistral agent if successfully configured
 if mistral_agent:
     active_sub_agents.append(mistral_agent)
 else:
     logger.warning(f"{MISTRAL_AGENT_NAME} could not be initialized and will not be available.")
 
 # Add LLM Auditor agent (llm_auditor instance is imported directly)
-if llm_auditor:
+# Assuming the import above succeeded, llm_auditor should be valid
+if 'llm_auditor' in globals() and llm_auditor:
      active_sub_agents.append(llm_auditor)
      logger.info(f"Adding '{LLM_AUDITOR_NAME}' to sub-agents list.")
 else:
-     # This case should ideally not happen if the import works,
-     # but added for safety incase llm_auditor is None for some reason
-     logger.warning(f"LLM Auditor agent ('{LLM_AUDITOR_NAME}') not loaded correctly and will not be available.")
+     # This path would be taken if the import itself failed, which should crash earlier
+     logger.error(f"LLM Auditor agent ('{LLM_AUDITOR_NAME}') object not found after import attempt. Check import path and Dockerfile copy step.")
 
 
-# --- Define Meta Agent (Update Instructions) ---
+# --- Define Meta Agent (Instructions unchanged from previous version) ---
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,

@@ -138,6 +138,7 @@ AGENT_ICONS = {
     "DataScienceAgent": "📊",
     "githubagent": "🐙",
     "MistralChatAgent": "🌬️",
+    "llm_auditor": "🔎", # Added icon for llm_auditor
     "assistant": "🤖",
     "error": "🚨"
 }
@@ -196,14 +197,14 @@ st.info(
     **What I can help with:**
     * **GCP Resources:** Manage Compute Engine VMs (create, list, start, stop, delete, details) and BigQuery Datasets (create).
     * **BigQuery Data:** Execute SQL queries against your BigQuery tables.
-    * **GitHub:** Search for repositories and retrieve file contents.\n
+    * **GitHub:** Search for repositories and retrieve file contents.
+    * **GCP Support:** Answer questions about GCP services, documentation, and fact-check information using search.
     * **Chat:** General conversation with Mistral.\n
-    Ask me things like "list my VMs", "run a query to count users", "find langchain repos on github", or "tell me a joke".
+    Ask me things like "list my VMs", "run a query to count users", "find langchain repos on github", "what is Cloud Run?", or "tell me a joke".
     """,
     icon="ℹ️"
 )
 
-# Initialize message history if it doesn't exist
 if MESSAGE_HISTORY_KEY not in st.session_state:
     st.session_state[MESSAGE_HISTORY_KEY] = [{"author": "assistant", "content": "Hello dear Cloud enthusiast, how can I assist you today?"}]
 
@@ -213,13 +214,13 @@ for message in st.session_state[MESSAGE_HISTORY_KEY]:
     with st.chat_message(name=author, avatar=icon):
         st.markdown(message["content"])
 
-# Handle new user input
-if prompt := st.chat_input("Ask about GCP resources, data, GitHub, or just chat..."):
+if prompt := st.chat_input("Ask about GCP resources, data, GitHub, GCP details, or just chat..."):
     if not current_adk_session_id or not adk_runner:
          st.error("Agent session could not be established. Cannot process request.", icon="❌")
     else:
         st.session_state[MESSAGE_HISTORY_KEY].append({"author": "user", "content": prompt})
-        with st.spinner("Agent is processing..."): 
+
+        with st.spinner("Agent is processing..."):
             try:
                 agent_response_text, agent_response_author = run_adk_sync(
                     adk_runner, current_adk_session_id, USER_ID, prompt
