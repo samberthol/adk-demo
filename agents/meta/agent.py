@@ -8,14 +8,13 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest
 from google.genai.types import Content
-# Removed incorrect tool import below
-from agents.langgraphagent.agent import A2ALangGraphCurrencyAgent
 
-
-# Import other sub-agents
+# Import sub-agents that are still agents
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
+# Import the TOOL for the LangGraph agent communication
+from agents.langgraphagent.tools import langgraph_currency_tool
 
 # Assuming llm_auditor was correctly copied
 try:
@@ -40,17 +39,14 @@ def _filter_mistral_history(
 ) -> None:
     if not llm_request or not hasattr(llm_request, 'contents') or not llm_request.contents:
         return
-
     filtered_contents: List[Content] = []
     allowed_roles = {'user', 'assistant', 'system'}
-
     for content_item in llm_request.contents:
         if isinstance(content_item, Content) and hasattr(content_item, 'role'):
             if content_item.role in allowed_roles:
                 filtered_contents.append(content_item)
         else:
             filtered_contents.append(content_item)
-
     llm_request.contents = filtered_contents
 
 
@@ -73,11 +69,7 @@ else:
     logger.warning(f"MISTRAL_MODEL_ID not set. {MISTRAL_AGENT_NAME} unavailable.")
 
 
-a2a_langgraph_currency_agent: Optional[A2ALangGraphCurrencyAgent] = None # Instantiated in ui/app.py
-A2A_LANGGRAPH_AGENT_NAME = "A2ALangGraphCurrencyAgent"
-
-
-# Assemble Sub-Agents List (Actual list assembled in ui/app.py)
+# Assemble Sub-Agents List (excluding the bridge agent)
 active_sub_agents = [
     resource_agent,
     data_science_agent,
@@ -88,22 +80,29 @@ if llm_auditor:
 if mistral_agent:
     active_sub_agents.append(mistral_agent)
 
+# Assemble Tools list for MetaAgent
+meta_agent_tools = [
+    langgraph_currency_tool, # Add the A2A tool directly
+]
+
 
 # Define Meta Agent
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,
-    description="Coordinator for specialized agents (resources, data, GitHub, currency, auditor) and a chat agent.",
+    description="Coordinator for specialized agents and tools (resources, data, GitHub, currency, auditor) and a chat agent.",
     instruction=(
         "You are the primary assistant. Analyze the user's request.\n"
         "- If it involves managing cloud resources (VMs), delegate to 'ResourceAgent'.\n"
         "- If it involves BigQuery data or datasets, delegate to 'DataScienceAgent'.\n"
         "- If it involves GitHub repositories or files, delegate to 'githubagent'.\n"
         f"- If it asks about GCP services, documentation, or needs GCP fact-checking, delegate to '{LLM_AUDITOR_NAME}'.\n"
-        f"- If the request involves currency conversion, exchange rates, or mentions the 'currency agent', delegate to '{A2A_LANGGRAPH_AGENT_NAME}'.\n"
+        # --- UPDATED: Use Tool ---
+        f"- If the request involves currency conversion or exchange rates, use the tool 'langgraph_currency_a2a_tool_func'. Provide the user's query to the tool.\n"
+        # --- End Tool Instruction ---
         f"- For general conversation, summarization, or if no other agent fits, delegate to '{MISTRAL_AGENT_NAME}'.\n"
-        "Present results clearly."
+        "Present results clearly from tools or delegated agents."
     ),
-    # The actual list with the instantiated A2ALangGraphCurrencyAgent is injected in ui/app.py
-    sub_agents=active_sub_agents,
+    sub_agents=active_sub_agents, # Pass the list of sub-agents
+    tools=meta_agent_tools # Pass the list of direct tools
 )
