@@ -1,7 +1,7 @@
 # adk-demo/agents/langgraphagent/agent.py
 import logging
-from google.adk.agents import Agent
-# Import the concrete session service implementation for type hinting
+# Inherit from LlmAgent instead of Agent
+from google.adk.agents import LlmAgent, Agent
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 from .tools import langgraph_currency_tool
@@ -10,29 +10,34 @@ logger = logging.getLogger(__name__)
 
 A2A_SESSION_ID_KEY = 'langgraph_a2a_session_id'
 
-class A2ALangGraphCurrencyAgent(Agent):
+# Change inheritance from Agent to LlmAgent
+class A2ALangGraphCurrencyAgent(LlmAgent):
     """
     ADK Agent bridge to an external LangGraph Currency Agent via A2A JSON-RPC.
+    Inherits LlmAgent with model=None to satisfy framework expectations.
     Manages the A2A session ID across turns using the ADK session service.
     """
     name: str = "A2ALangGraphCurrencyAgent"
     description: str = "Relays queries to the external LangGraph Currency agent."
 
-    # Updated type hint to use the concrete class
     def __init__(self, session_service: InMemorySessionService):
         """
-        Initializes the agent with the tool and session service.
+        Initializes the agent, passing model=None to LlmAgent parent.
 
         Args:
             session_service: The ADK session service (InMemorySessionService instance).
         """
-        super().__init__(tools=[langgraph_currency_tool])
+        # Pass model=None to the LlmAgent superclass init
+        super().__init__(model=None, tools=[langgraph_currency_tool])
         self._session_service = session_service
-        logger.info(f"Initialized {self.name} with tool: {langgraph_currency_tool.name}")
+        logger.info(f"Initialized {self.name} as LlmAgent (model=None) with tool: {langgraph_currency_tool.name}")
 
+    # The __call__ method remains the primary logic handler for this agent.
+    # It overrides the default LlmAgent behavior which would involve calling an LLM.
     def __call__(self, message: Content, session_id: str | None = None, user_id: str | None = None) -> Content | None:
         """
         Processes user message, invokes tool, manages A2A session ID via ADK session.
+        This method is called directly when the agent is invoked.
         """
         if not session_id or not user_id:
             logger.error(f"{self.name} requires ADK session_id and user_id.")
@@ -47,12 +52,11 @@ class A2ALangGraphCurrencyAgent(Agent):
             logger.warning(f"{self.name} received empty query.")
             return Content(role=self.name, parts=[Part(text="Please provide a query.")])
 
-        logger.info(f"Received message for {self.name} (ADK Session: {session_id}): '{query_text}'")
+        logger.info(f"Executing __call__ for {self.name} (ADK Session: {session_id}): '{query_text}'")
 
         # Retrieve A2A Session ID
         a2a_session_id: str | None = None
         try:
-            # Use self.app_name if set by Runner, otherwise fallback if needed
             app_name = getattr(self, 'app_name', 'UNKNOWN_APP')
             session_data = self._session_service.get_session(
                 app_name=app_name, user_id=user_id, session_id=session_id
