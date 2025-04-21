@@ -1,7 +1,7 @@
 ```mermaid
 graph TD
     subgraph "User Interaction"
-        U[User] --> ST(Streamlit UI);
+        UI[User] --> ST(Streamlit UI);
     end
 
     subgraph "ADK Core"
@@ -9,40 +9,37 @@ graph TD
         R --> MA(MetaAgent / LlmAgent - Gemini);
     end
 
-    subgraph "Sub-Agents & Backends"
-        MA --> RA(ResourceAgent / LlmAgent);
-        RA --> GCE(GCE API);
+    subgraph "Internal Components"
+        subgraph "Sub-Agents"
+            MA --> RA(ResourceAgent);
+            MA --> DA(DataScienceAgent);
+            MA --> GA(GithubAgent);
+            MA --> MCA(MistralChatAgent);
+            MA --> AA(LLMAuditor);
+        end
+        subgraph "Direct Tools"
+             MA -- Calls Tool --> TLG(LangGraph A2A Tool);
+        end
+    end
 
-        MA --> DA(DataScienceAgent / LlmAgent);
-        DA --> BQ(BigQuery API);
-
-        MA --> GA(GithubAgent / LlmAgent);
+    subgraph "External Services"
+        RA --> GCE(GCP Compute API);
+        DA --> BQ(GCP BigQuery API);
         GA --> MCP(MCP Server);
         MCP --> GH(GitHub API);
+        MCA --> VTX_M(GCP Vertex AI / Mistral);
+        AA --> VTX_G(GCP Vertex AI / Gemini); 
 
-        MA --> MCA[MistralChatAgent / LlmAgent];
-        MCA --> LLM(LiteLlm Wrapper);
-        LLM --> VTX(Vertex AI Endpoint / Mistral Model);
+        TLG -- A2A Call --> ExtLGA(External LangGraph Agent);
+        ExtLGA --> FRA(Frankfurter API);
+        ExtLGA --> VTX_LG(GCP Vertex AI / Gemini);
     end
 
-    subgraph "Response Flow"
-        RA
-        MA;
-        DA
-        MA;
-        GA
-        MA;
-        MCA
-        MA;
-        MA
-        R;
-        R
-        ST;
-    end
+    classDef adkcore fill:#D5E8D4,stroke:#82B366,stroke-width:2px;
+    classDef external fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef tool fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
 
-    style GCE fill:#f9f,stroke:#333,stroke-width:2px;
-    style BQ fill:#f9f,stroke:#333,stroke-width:2px;
-    style GH fill:#f9f,stroke:#333,stroke-width:2px;
-    style VTX fill:#f9f,stroke:#333,stroke-width:2px;
-    style MCP fill:#ccf,stroke:#333,stroke-width:2px;
+    class MA,R,RA,DA,GA,MCA,AA adkcore;
+    class TLG tool;
+    class GCE,BQ,MCP,GH,VTX_M,VTX_G,ExtLGA,FRA,VTX_LG external;
 ```
