@@ -18,7 +18,7 @@ The system features:
 **Project Diagram** : Workflow of the different component
 
 <p align="center">
-<img src="./assets/td-flow-chart.png" alt="Diagram" width="800"/>
+<img src="./assets/td-flow-chart.svg" alt="Diagram" width="800"/>
 </p>
 
 ## Project Structure
