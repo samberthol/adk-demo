@@ -6,7 +6,25 @@ import os
 import asyncio
 import nest_asyncio
 from streamlit_mermaid import st_mermaid
-from typing import Tuple, Set
+from typing import Tuple, Set, List
+
+# ADK Core Imports
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService, SessionService
+from google.genai.types import Content, Part
+from google.adk.agents import Agent
+
+# Agent Imports
+# Import the main meta_agent instance (which defines structure but might have an incomplete sub_agent list initially)
+from agents.meta.agent import meta_agent
+# Import agent instances/classes needed for dynamic list assembly
+from agents.resource.agent import resource_agent
+from agents.datascience.agent import data_science_agent
+from agents.githubagent.agent import githubagent
+from agents.langgraphagent.agent import A2ALangGraphCurrencyAgent # Import the class
+# Import potentially optional agents (check if loaded)
+from agents.meta.agent import llm_auditor, mistral_agent # Import instances from meta/agent.py
+
 
 APP_NAME = "gcp_multi_agent_demo_streamlit"
 USER_ID = f"st_user_{APP_NAME}"
@@ -23,338 +41,272 @@ st.set_page_config(
     page_icon="☁️"
     )
 
-try:
-    from agents.meta.agent import meta_agent
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-    from google.genai.types import Content, Part
-except ImportError as e:
-    st.exception(f"Failed to import agent modules or ADK components: {e}")
-    st.error("Ensure project structure and requirements are correct. App cannot start.")
-    st.stop()
-
+# Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Apply nest_asyncio if needed
 try:
     nest_asyncio.apply()
-    logger.info("nest_asyncio applied successfully.")
 except RuntimeError as e:
     if "cannot apply nest_asyncio" not in str(e):
          logger.error(f"Error applying nest_asyncio: {e}")
 
 def get_runner_and_session_id():
+    """Initializes ADK services, agents, and runner, storing them in session state."""
+    global meta_agent # Allow modification of the imported meta_agent instance
+
     if ADK_SERVICE_KEY not in st.session_state:
-        logger.info("--- ADK Init: Creating new InMemorySessionService in st.session_state.")
+        logger.info("Creating new InMemorySessionService.")
         st.session_state[ADK_SERVICE_KEY] = InMemorySessionService()
 
+    session_service: SessionService = st.session_state[ADK_SERVICE_KEY]
+
     if ADK_RUNNER_KEY not in st.session_state:
-        logger.info("--- ADK Init: Creating new Runner in st.session_state.")
-        if 'meta_agent' not in globals():
-             raise NameError("Fatal Error: meta_agent not imported or defined before Runner initialization.")
+        logger.info("Creating new Runner.")
+
+        # --- Instantiate agents requiring runtime context ---
+        a2a_langgraph_agent_instance = A2ALangGraphCurrencyAgent(session_service=session_service)
+        logger.info(f"Instantiated {a2a_langgraph_agent_instance.name}")
+
+        # --- Assemble the final list of active sub-agents ---
+        all_active_agents: List[Agent] = [
+            resource_agent,
+            data_science_agent,
+            githubagent,
+            a2a_langgraph_agent_instance, # Add the properly instantiated agent
+        ]
+        if llm_auditor:
+            all_active_agents.append(llm_auditor)
+            logger.info(f"Adding {llm_auditor.name} to active list.")
+        if mistral_agent:
+            all_active_agents.append(mistral_agent)
+            logger.info(f"Adding {mistral_agent.name} to active list.")
+
+        # --- Update the imported meta_agent instance with the complete list ---
+        # This assumes meta_agent is an instance of LlmAgent with a 'sub_agents' attribute
+        if hasattr(meta_agent, 'sub_agents'):
+             meta_agent.sub_agents = all_active_agents
+             logger.info(f"Updated meta_agent sub_agents list dynamically: {[a.name for a in meta_agent.sub_agents]}")
+        else:
+             logger.error("Imported meta_agent does not have a 'sub_agents' attribute to update.")
+             # Handle error appropriately - maybe raise or use a default list
+
+        # --- Create the Runner ---
         st.session_state[ADK_RUNNER_KEY] = Runner(
-            agent=meta_agent,
+            agent=meta_agent, # Use the updated meta_agent instance
             app_name=APP_NAME,
-            session_service=st.session_state[ADK_SERVICE_KEY]
+            session_service=session_service
         )
+        logger.info("Runner created and stored in session state.")
 
-    session_service = st.session_state[ADK_SERVICE_KEY]
-    runner = st.session_state[ADK_RUNNER_KEY]
+    runner: Runner = st.session_state[ADK_RUNNER_KEY]
 
+    # --- Manage ADK Session ID ---
     if ADK_SESSION_ID_KEY not in st.session_state:
         session_id = f"st_session_{APP_NAME}_{int(time.time())}_{os.urandom(4).hex()}"
         st.session_state[ADK_SESSION_ID_KEY] = session_id
-        logger.info(f"--- ADK Session Mgmt: Generated new ADK session ID: {session_id}")
+        logger.info(f"Generated new ADK session ID: {session_id}")
         try:
             session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state={})
-            logger.info(f"--- ADK Session Mgmt: Created session {session_id} in service.")
+            logger.info(f"Created session {session_id} in service.")
         except Exception as e:
-            logger.exception(f"--- ADK Session Mgmt: ERROR initially creating session {session_id}:")
+            logger.exception(f"ERROR initially creating session {session_id}:")
             if ADK_SESSION_ID_KEY in st.session_state: del st.session_state[ADK_SESSION_ID_KEY]
             raise RuntimeError(f"Could not create initial ADK session {session_id}: {e}") from e
     else:
         session_id = st.session_state[ADK_SESSION_ID_KEY]
-        logger.info(f"--- ADK Session Mgmt: Reusing ADK session ID from state: {session_id}")
+        # Validate session exists in service (optional but good practice)
         try:
             existing = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
             if not existing:
-                logger.warning(f"--- ADK Session Mgmt: Session {session_id} not found in service. Recreating (state lost).")
+                logger.warning(f"Session {session_id} not found. Recreating (state lost).")
                 session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state={})
-                logger.info(f"--- ADK Session Mgmt: Recreated session {session_id} in service.")
         except Exception as e:
-            logger.exception(f"--- ADK Session Mgmt: Error checking/recreating session {session_id}:")
+            logger.exception(f"Error checking/recreating session {session_id}:")
             if ADK_SESSION_ID_KEY in st.session_state: del st.session_state[ADK_SESSION_ID_KEY]
             raise RuntimeError(f"Failed to validate/recreate ADK session {session_id}: {e}") from e
 
     return runner, session_id
 
 async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> Tuple[str, str, Set[str]]:
-    logger.info(f"\n--- ADK Run Async: Starting execution for session {session_id}, User: {user_id} ---")
+    """Runs the ADK agent asynchronously and streams events."""
+    logger.info(f"Starting ADK run_async for session {session_id}")
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
     final_response_author = "assistant"
-    last_text_event_author = "assistant"
     activated_agents_set = set()
-    start_time = time.time()
-    event_counter = 0
 
     try:
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-            event_counter += 1
             author = event.author
-            has_text = False
-            content_type = "N/A"
-            text_preview = ""
-
-            if event.content and event.content.parts:
-                 part = event.content.parts[0]
-                 if hasattr(part, 'text') and part.text is not None:
-                      has_text = True
-                      content_type = "text"
-                      text_preview = repr(part.text[:70]) + ("..." if len(part.text) > 70 else "")
-                 elif hasattr(part, 'function_call') and part.function_call is not None:
-                      content_type = "function_call"
-                      fc = part.function_call
-                      text_preview = f"FunctionCall(name={getattr(fc, 'name', 'N/A')})"
-                 elif hasattr(part, 'function_response') and part.function_response is not None:
-                     content_type = "function_response"
-                     fr = part.function_response
-                     text_preview = f"FunctionResponse(name={getattr(fr, 'name', 'N/A')})"
-
-            log_msg = f"--- ADK Event {event_counter}: Author='{author}', Type='{content_type}', Content='{text_preview}'"
-            logger.info(log_msg)
-
             if author and author != 'user':
                 activated_agents_set.add(author)
-
-            if has_text:
+            if event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
                  final_response_text = event.content.parts[0].text
-                 last_text_event_author = author or "assistant"
-                 logger.info(f"-------> Updated last_text_event_author to '{last_text_event_author}' (Event {event_counter})")
+                 final_response_author = author or "assistant" # Use event author if available
 
     except Exception as e:
-        if "Session not found" in str(e):
-             logger.error(f"--- ADK Run Async: Confirmed 'Session not found' error for {session_id} / {user_id}")
-             final_response_text = "Error: Agent session expired or was lost. Please try clearing the session and starting again."
-             last_text_event_author = "error"
-             activated_agents_set.add("error")
-        else:
-            logger.exception("--- ADK Run Async: !! EXCEPTION during agent execution:")
-            final_response_text = f"Sorry, an error occurred during agent execution: {e}"
-            last_text_event_author = "error"
-            activated_agents_set.add("error")
-    finally:
-        end_time = time.time()
-        duration = end_time - start_time
-        final_response_author = last_text_event_author
-        logger.info(f"--- ADK Run Async: Turn execution completed in {duration:.2f} seconds.")
-        logger.info(f"--- ADK Run Async: Final Author Determined: {final_response_author}")
-        logger.info(f"--- ADK Run Async: Activated agents this turn: {activated_agents_set}")
+        logger.exception("Exception during agent execution:")
+        final_response_text = f"Sorry, an error occurred: {e}"
+        final_response_author = "error"
+        activated_agents_set.add("error")
 
+    logger.info(f"ADK run_async completed. Final Author: {final_response_author}, Activated: {activated_agents_set}")
     return final_response_text, final_response_author, activated_agents_set
 
 def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_text: str) -> Tuple[str, str, Set[str]]:
+    """Synchronous wrapper for run_adk_async."""
     try:
-        text, author, activated_set = asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
-        return text, author, activated_set
-    except RuntimeError as e:
-        logger.exception("RuntimeError during asyncio.run in run_adk_sync:")
-        return f"Error running agent task: {e}. Check logs.", "error", {"error"}
+        return asyncio.run(run_adk_async(runner, session_id, user_id, user_message_text))
     except Exception as e:
-        logger.exception("Unexpected exception during run_adk_sync:")
-        return f"An unexpected error occurred: {e}. Check logs.", "error", {"error"}
+        logger.exception("Exception during run_adk_sync:")
+        return f"An error occurred: {e}", "error", {"error"}
 
+# --- UI Configuration ---
 AGENT_ICONS = {
     "user": "🧑‍💻",
     "MetaAgent": "🧠",
     "ResourceAgent": "☁️",
     "DataScienceAgent": "📊",
     "githubagent": "🐙",
+    "A2ALangGraphCurrencyAgent": "💱", # Added icon for new agent
     "MistralChatAgent": "🌬️",
     "llm_auditor": "🔎",
-    "critic_agent": "🔎",
-    "reviser_agent": "🔎",
-    "assistant": "🤖",
+    "assistant": "🤖", # Default/fallback
     "error": "🚨"
 }
 
 def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], last_author: str = None) -> str:
-    if not root_agent_name:
-        return "graph TD;\n  Error[ADK Runner/Agent not initialized];\n"
-
+    """Generates Mermaid syntax for the agent activity graph."""
+    if not root_agent_name: return "graph TD;\n  Error[ADK Runner not initialized];\n"
     mermaid_lines = ["graph TD"]
-    try:
-        nodes_to_draw = activated_agents.copy() if activated_agents else set()
-        if nodes_to_draw and nodes_to_draw != {"error"}:
-             if root_agent_name not in nodes_to_draw:
-                  if any(agent != "error" for agent in nodes_to_draw):
-                     nodes_to_draw.add(root_agent_name)
-        elif last_author == "error":
-             nodes_to_draw.add("error")
-        elif last_author:
+    nodes_to_draw = activated_agents.copy() if activated_agents else set()
+    # Ensure root agent is shown if any sub-agent was active
+    if nodes_to_draw and nodes_to_draw != {"error"} and root_agent_name not in nodes_to_draw:
+         if any(agent != "error" for agent in nodes_to_draw):
              nodes_to_draw.add(root_agent_name)
+    elif last_author == "error": nodes_to_draw.add("error")
+    elif last_author and not nodes_to_draw : nodes_to_draw.add(root_agent_name) # Show root if it responded directly
 
-        if not nodes_to_draw:
-             idle_icon = AGENT_ICONS.get("assistant", "❓")
-             mermaid_lines.append(f'    Idle["{idle_icon} Waiting..."]:::default')
-        else:
-            mermaid_lines.append('')
+    if not nodes_to_draw:
+         mermaid_lines.append(f'    Idle["{AGENT_ICONS.get("assistant", "?")} Waiting..."]:::default')
+    else:
+        for name in nodes_to_draw:
+            icon = AGENT_ICONS.get(name, '❓')
+            mermaid_lines.append(f'    {name}["{icon} {name}"]')
+        if root_agent_name in nodes_to_draw:
             for name in nodes_to_draw:
-                icon = AGENT_ICONS.get(name, '❓')
-                mermaid_lines.append(f'    {name}["{icon} {name}"]')
-
-            mermaid_lines.append('')
-            if root_agent_name in nodes_to_draw:
-                for name in nodes_to_draw:
-                    if name != root_agent_name and name != "error":
-                        mermaid_lines.append(f'    {root_agent_name} --> {name}')
-
-            mermaid_lines.append('')
-            mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
-            mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
-            mermaid_lines.append('')
-
-            for name in nodes_to_draw:
-                node_class = "active" if last_author == name else "default"
-                mermaid_lines.append(f'    {name}:::{node_class}')
-
-    except Exception as e:
-        logger.error(f"Error generating Mermaid syntax: {e}", exc_info=True)
-        return "graph TD;\n  ErrorGeneratingGraph[Error generating graph];\n"
-
+                if name != root_agent_name and name != "error":
+                    mermaid_lines.append(f'    {root_agent_name} --> {name}')
+        mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
+        mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
+        for name in nodes_to_draw:
+            node_class = "active" if last_author == name else "default"
+            mermaid_lines.append(f'    {name}:::{node_class}')
     return "\n".join(mermaid_lines) + "\n"
 
+# --- Initialize Runner and Session ---
 try:
     adk_runner, current_adk_session_id = get_runner_and_session_id()
+    # Ensure root_agent_name reflects the agent actually used by the runner
     root_agent_name = adk_runner.agent.name if adk_runner and adk_runner.agent else None
 except Exception as e:
-    st.error(f"**Fatal Error:** Could not initialize ADK session: {e}", icon="❌")
-    logger.exception("Critical ADK Initialization/Session Validation failed.")
-    root_agent_name = None
+    st.error(f"**Fatal Error:** Could not initialize ADK session/runner: {e}", icon="❌")
+    logger.exception("Critical ADK Initialization failed.")
+    root_agent_name = None # Prevent graph rendering if init fails
     adk_runner = None
     current_adk_session_id = None
 
-# --- Sidebar ---
+# --- Sidebar UI ---
 with st.sidebar:
-    # --- Center Logo ---
+    # Logo and Title
     img_col1, img_col2, img_col3 = st.columns([2, 4, 2])
-    with img_col2: # Logo in the middle column
-        try:
-            st.image("assets/google-cloud-logo.png", width=300)
-        except FileNotFoundError:
-            st.warning("Logo image not found.")
-            st.header("☁️ Google Cloud")
-
-    # --- Center Title ---
-    st.markdown(
-    """
-    <h2 style='text-align: center; color:#FFFFFF; font-weight: 600; font-size: 1.5em; margin-bottom: 0px;'>
-        <span style='color:#4285F4;'>G</span><span style='color:#EA4335;'>o</span><span style='color:#FBBC05;'>o</span><span style='color:#4285F4;'>g</span><span style='color:#34A853;'>l</span><span style='color:#EA4335;'>e</span> Cloud
-    </h2>
-    """,
-    unsafe_allow_html=True
-    )
-
+    with img_col2:
+        try: st.image("assets/google-cloud-logo.png", width=300)
+        except FileNotFoundError: st.header("☁️ Google Cloud")
+    st.markdown("<h2 style='text-align: center;'>Agent Hub</h2>", unsafe_allow_html=True)
     st.divider()
 
-    # --- Session Info & Reset Button (Can remain as is) ---
+    # Session Info & Reset
     st.header("⚙️ Session Info")
-    if current_adk_session_id:
-        st.success(f"Session Active ✅")
-    else:
-         st.error("Session Inactive ❌")
-
+    if current_adk_session_id: st.success(f"Session Active ✅")
+    else: st.error("Session Inactive ❌")
     if st.button("🔄 Clear Chat & Reset Session"):
-        logger.info(f"Clearing chat history and resetting session for user {USER_ID}, ADK session {current_adk_session_id}")
-        st.session_state.pop(MESSAGE_HISTORY_KEY, None)
-        st.session_state.pop(ADK_SESSION_ID_KEY, None)
-        st.session_state.pop(ADK_RUNNER_KEY, None)
-        st.session_state.pop(ADK_SERVICE_KEY, None)
-        st.session_state.pop(LAST_TURN_AUTHOR_KEY, None)
-        st.session_state.pop(ACTIVATED_AGENTS_KEY, None)
-        logger.info("Cleared ADK keys from st.session_state.")
+        keys_to_pop = [MESSAGE_HISTORY_KEY, ADK_SESSION_ID_KEY, ADK_RUNNER_KEY, ADK_SERVICE_KEY, LAST_TURN_AUTHOR_KEY, ACTIVATED_AGENTS_KEY]
+        for key in keys_to_pop: st.session_state.pop(key, None)
         st.toast("Session Cleared!")
         st.rerun()
-
     st.divider()
 
-    # --- Agent Activity Header ---
-    st.header("🤖 Agent Activity (Last Turn)")
-
-    # --- Center Mermaid Diagram ---
-    last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
-    activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
-
-    # Use columns to center the mermaid chart and its expander
-    graph_col1, graph_col2, graph_col3 = st.columns([1, 4, 1]) # Adjust ratios as needed
-
-    with graph_col2: # Mermaid chart in the middle column
+    # Agent Activity Graph
+    st.header("🤖 Agent Activity")
+    graph_col1, graph_col2, graph_col3 = st.columns([1, 4, 1])
+    with graph_col2:
         if root_agent_name:
+            last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
+            activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
             try:
                 mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
-                # Render the mermaid chart
                 st_mermaid(mermaid_syntax, height=350)
-
-                # Keep the expander associated with the chart
-                with st.expander("Generated Mermaid Syntax (Debug)"):
-                    st.code(mermaid_syntax, language='mermaid')
-
+                # with st.expander("Mermaid Syntax"): st.code(mermaid_syntax, language='mermaid') # Optional debug
             except Exception as e:
                  logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
-                 st.error("Error displaying agent activity.")
+                 st.error("Error displaying activity.")
         else:
-            st.warning("Agent runner not initialized, cannot display activity.")
-
-    # --- Session ID Expander (Can remain as is, or be centered too if desired) ---
+            st.warning("Runner not initialized.")
     with st.expander("Show Full Session ID"):
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
-
 
 # --- Main Chat Interface UI ---
 st.title("☁️ GCP Agent Hub")
 st.caption("Powered by Google ADK")
 
+# Updated info text
 st.info(
     """
     **What I can help with:**
-    * **GCP Resources:** Manage Compute Engine VMs (create, list, start, stop, delete, details) and BigQuery Datasets (create).
-    * **BigQuery Data:** Execute SQL queries against your BigQuery tables.
-    * **GitHub:** Search for repositories and retrieve file contents.
-    * **GCP Support:** Answer questions about GCP services, documentation, and fact-check information using search.
-    * **Chat:** General conversation with Mistral.\n
-    Ask me things like "list my VMs", "run a query to count users", "find langchain repos on github", "what is Cloud Run?", or "tell me a joke".
+    * **GCP Resources:** Manage Compute Engine VMs and BigQuery Datasets.
+    * **BigQuery Data:** Execute SQL queries.
+    * **GitHub:** Search repositories and get file contents.
+    * **Currency:** Get exchange rates (e.g., "1 USD to EUR?").
+    * **GCP Support:** Answer questions about GCP services and documentation.
+    * **Chat:** General conversation.
     """,
     icon="ℹ️"
 )
 
+# Initialize chat history
 if MESSAGE_HISTORY_KEY not in st.session_state:
-    st.session_state[MESSAGE_HISTORY_KEY] = [{"author": "assistant", "content": "Hello dear Cloud enthusiast, how can I assist you today?"}]
+    st.session_state[MESSAGE_HISTORY_KEY] = [{"author": "assistant", "content": "Hello! How can I assist with GCP or other tasks today?"}]
 
+# Display chat messages
 for message in st.session_state[MESSAGE_HISTORY_KEY]:
     author = message.get("author", "assistant")
     icon = AGENT_ICONS.get(author, AGENT_ICONS["assistant"])
     with st.chat_message(name=author, avatar=icon):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask about GCP resources, data, GitHub, GCP details, or just chat..."):
+# Handle chat input
+if prompt := st.chat_input("Ask about GCP, GitHub, currency, or just chat..."):
     if not current_adk_session_id or not adk_runner:
-         st.error("Agent session could not be established. Cannot process request.", icon="❌")
+         st.error("ADK session/runner not available. Cannot process request.", icon="❌")
     else:
+        # Add user message to history and display it
         st.session_state[MESSAGE_HISTORY_KEY].append({"author": "user", "content": prompt})
+        with st.chat_message(name="user", avatar=AGENT_ICONS["user"]):
+             st.markdown(prompt)
 
+        # Process message with ADK runner
         with st.spinner("Agent is processing..."):
-            try:
-                agent_response_text, agent_response_author, activated_agents_set = run_adk_sync(
-                    adk_runner, current_adk_session_id, USER_ID, prompt
-                )
-                st.session_state[MESSAGE_HISTORY_KEY].append({"author": agent_response_author, "content": agent_response_text})
-                st.session_state[LAST_TURN_AUTHOR_KEY] = agent_response_author
-                st.session_state[ACTIVATED_AGENTS_KEY] = activated_agents_set
-            except Exception as e:
-                logger.exception("Error running ADK turn from Streamlit input:")
-                error_msg = f"An error occurred: {e}"
-                st.session_state[MESSAGE_HISTORY_KEY].append({"author": "error", "content": error_msg})
-                st.session_state[LAST_TURN_AUTHOR_KEY] = "error"
-                st.session_state[ACTIVATED_AGENTS_KEY] = {"error"}
+            agent_response_text, agent_response_author, activated_agents_set = run_adk_sync(
+                adk_runner, current_adk_session_id, USER_ID, prompt
+            )
+            # Store results for graph rendering
+            st.session_state[LAST_TURN_AUTHOR_KEY] = agent_response_author
+            st.session_state[ACTIVATED_AGENTS_KEY] = activated_agents_set
+            # Add agent response to history
+            st.session_state[MESSAGE_HISTORY_KEY].append({"author": agent_response_author, "content": agent_response_text})
 
+        # Rerun to display the new agent message and updated graph
         st.rerun()
