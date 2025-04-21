@@ -1,7 +1,3 @@
-# cloudbuild.yaml
-# Builds THREE images: Python App (Streamlit), Go MCP Server, and LangGraph Agent.
-# Deploys THREE Cloud Run services.
-
 steps:
   - name: 'gcr.io/kaniko-project/executor:latest'
     id: Build-Python-App
@@ -40,7 +36,7 @@ steps:
       - '--platform=managed'
       - '--port=${_LANGGRAPH_PORT}'
       - '--allow-unauthenticated'
-      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}##PORT=${_LANGGRAPH_PORT}'
+      - '--set-env-vars=^##^GOOGLE_API_KEY=${_GOOGLE_API_KEY}'
       - '--memory=512Mi'
       - '--quiet'
     waitFor: ['Build-LangGraph-Agent']
