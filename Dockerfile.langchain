@@ -1,13 +1,13 @@
 # Dockerfile.langchain
-# Builds the LangGraph Currency Agent, fixing PATH for uv.
+# Builds the LangGraph Currency Agent, setting WORKDIR correctly for uv workspace.
 
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PORT=8080 \
-    WORKDIR=/app \
+    # Define repo root for clarity
+    REPO_ROOT=/a2a_repo \
     UV_CACHE_DIR=/root/.cache/uv \
-    # Add the likely uv installation directory to the PATH
     PATH="/root/.local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,20 +19,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-WORKDIR ${WORKDIR}
+# Clone the full A2A repository into REPO_ROOT
+RUN git clone --depth 1 https://github.com/google/A2A.git ${REPO_ROOT}
 
-# Clone the specific agent directory
-RUN git clone --depth 1 --filter=blob:none --sparse https://github.com/google/A2A.git /tmp/A2A \
-    && cd /tmp/A2A \
-    && git sparse-checkout set samples/python/agents/langgraph \
-    && mv samples/python/agents/langgraph/* ${WORKDIR} \
-    && cd / \
-    && rm -rf /tmp/A2A
+# Set the working directory *inside* the specific agent's folder within the clone
+WORKDIR ${REPO_ROOT}/samples/python/agents/langgraph
 
-# Install Python dependencies using uv (should find uv in PATH now)
+# Install Python dependencies using uv from the current WORKDIR's pyproject.toml
+# uv should now be able to resolve workspace dependencies correctly
 RUN uv pip install --system .
 
 EXPOSE ${PORT}
 
-# Run the application using uv
+# Run the application using uv from the current WORKDIR
+# Assumes 'uv run .' finds the correct entrypoint in this directory's pyproject.toml
 CMD ["uv", "run", ".", "--host", "0.0.0.0", "--port", "${PORT}"]
