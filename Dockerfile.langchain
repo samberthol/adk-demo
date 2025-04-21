@@ -1,56 +1,38 @@
 # Dockerfile.langchain
-# This Dockerfile builds the LangGraph Currency Agent by pulling code directly from GitHub.
+# Builds the LangGraph Currency Agent, fixing PATH for uv.
 
-# Use the specified Python version base image
 FROM python:3.13-slim
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    # Default port for Cloud Run. Can be overridden by Cloud Run settings.
     PORT=8080 \
-    # Set the working directory
     WORKDIR=/app \
-    # Path for uv cache to potentially speed up builds if caching is enabled
-    UV_CACHE_DIR=/root/.cache/uv
+    UV_CACHE_DIR=/root/.cache/uv \
+    # Add the likely uv installation directory to the PATH
+    PATH="/root/.local/bin:${PATH}"
 
-# Install necessary system packages: git for cloning, curl for downloading uv
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv - the recommended package manager for this agent
+# Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Set the working directory
 WORKDIR ${WORKDIR}
 
-# Clone the specific agent directory from the A2A GitHub repository
-# Using sparse checkout to only get the required directory
+# Clone the specific agent directory
 RUN git clone --depth 1 --filter=blob:none --sparse https://github.com/google/A2A.git /tmp/A2A \
     && cd /tmp/A2A \
-    # Configure sparse checkout for the target directory
     && git sparse-checkout set samples/python/agents/langgraph \
-    # Move the desired directory to the WORKDIR
     && mv samples/python/agents/langgraph/* ${WORKDIR} \
-    # Clean up the temporary clone
     && cd / \
     && rm -rf /tmp/A2A
 
-# Install Python dependencies using uv from pyproject.toml
-# Using --system flag to install into the system Python environment within the container.
-# The '.' tells uv to look for pyproject.toml in the current directory.
+# Install Python dependencies using uv (should find uv in PATH now)
 RUN uv pip install --system .
 
-# Copy the .env file if provided at build time (for local testing primarily)
-# Cloud Run will inject environment variables via the deployment configuration.
-# COPY .env .env
-
-# Expose the port the app will run on
 EXPOSE ${PORT}
 
-# Define the command to run the application using uv
-# It runs the default application defined in pyproject.toml using uv run
-# Listens on all interfaces (0.0.0.0) on the specified PORT.
+# Run the application using uv
 CMD ["uv", "run", ".", "--host", "0.0.0.0", "--port", "${PORT}"]
