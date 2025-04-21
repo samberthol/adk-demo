@@ -1,102 +1,109 @@
-# adk-demo/agents/langgraphagent/agent.py
+# agents/meta/agent.py
+import os
 import logging
-from google.adk.agents import Agent
-# Import the concrete session service implementation for type hinting
-from google.adk.sessions import InMemorySessionService
-from google.genai.types import Content, Part
-from .tools import langgraph_currency_tool
+from typing import Optional, List
+
+from google.adk.agents import LlmAgent
+from google.adk.models.lite_llm import LiteLlm
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmRequest
+from google.genai.types import Content
+# Removed incorrect tool import below
+from agents.langgraphagent.agent import A2ALangGraphCurrencyAgent
+
+
+# Import other sub-agents
+from agents.resource.agent import resource_agent
+from agents.datascience.agent import data_science_agent
+from agents.githubagent.agent import githubagent
+
+# Assuming llm_auditor was correctly copied
+try:
+    from agents.llm_auditor.llm_auditor.agent import llm_auditor
+    LLM_AUDITOR_LOADED = True
+    LLM_AUDITOR_NAME = getattr(llm_auditor, 'name', 'llm_auditor')
+except ImportError:
+    logging.error("Failed to import llm_auditor agent.", exc_info=True)
+    llm_auditor = None
+    LLM_AUDITOR_LOADED = False
+    LLM_AUDITOR_NAME = "llm_auditor (Not Loaded)"
 
 logger = logging.getLogger(__name__)
 
-A2A_SESSION_ID_KEY = 'langgraph_a2a_session_id'
+agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
+MISTRAL_AGENT_NAME = "MistralChatAgent"
 
-class A2ALangGraphCurrencyAgent(Agent):
-    """
-    ADK Agent bridge to an external LangGraph Currency Agent via A2A JSON-RPC.
-    Manages the A2A session ID across turns using the ADK session service.
-    """
-    name: str = "A2ALangGraphCurrencyAgent"
-    description: str = "Relays queries to the external LangGraph Currency agent."
 
-    # Updated type hint to use the concrete class
-    def __init__(self, session_service: InMemorySessionService):
-        """
-        Initializes the agent with the tool and session service.
+# Callback Function to Filter Mistral History (if used)
+def _filter_mistral_history(
+    callback_context: CallbackContext, llm_request: LlmRequest
+) -> None:
+    if not llm_request or not hasattr(llm_request, 'contents') or not llm_request.contents:
+        return
 
-        Args:
-            session_service: The ADK session service (InMemorySessionService instance).
-        """
-        super().__init__(tools=[langgraph_currency_tool])
-        self._session_service = session_service
-        logger.info(f"Initialized {self.name} with tool: {langgraph_currency_tool.name}")
+    filtered_contents: List[Content] = []
+    allowed_roles = {'user', 'assistant', 'system'}
 
-    def __call__(self, message: Content, session_id: str | None = None, user_id: str | None = None) -> Content | None:
-        """
-        Processes user message, invokes tool, manages A2A session ID via ADK session.
-        """
-        if not session_id or not user_id:
-            logger.error(f"{self.name} requires ADK session_id and user_id.")
-            return Content(role=self.name, parts=[Part(text="Internal Error: ADK session context missing.")])
-
-        if not message.parts or not hasattr(message.parts[0], 'text'):
-             logger.warning(f"{self.name} received message with no text part.")
-             return Content(role=self.name, parts=[Part(text="Please provide query as text.")])
-
-        query_text = message.parts[0].text
-        if not query_text:
-            logger.warning(f"{self.name} received empty query.")
-            return Content(role=self.name, parts=[Part(text="Please provide a query.")])
-
-        logger.info(f"Received message for {self.name} (ADK Session: {session_id}): '{query_text}'")
-
-        # Retrieve A2A Session ID
-        a2a_session_id: str | None = None
-        try:
-            # Use self.app_name if set by Runner, otherwise fallback if needed
-            app_name = getattr(self, 'app_name', 'UNKNOWN_APP')
-            session_data = self._session_service.get_session(
-                app_name=app_name, user_id=user_id, session_id=session_id
-            )
-            if session_data and session_data.state:
-                a2a_session_id = session_data.state.get(A2A_SESSION_ID_KEY)
-                logger.info(f"Retrieved A2A session ID: {a2a_session_id}" if a2a_session_id else "No prior A2A session ID found.")
-            else:
-                 logger.warning(f"No state found for ADK session {session_id}.")
-        except Exception as e:
-            logger.exception(f"Error retrieving ADK session state for {session_id}:")
-            a2a_session_id = None
-
-        # Call Tool
-        tool_response_dict = self.tools[0](query=query_text, session_id=a2a_session_id)
-
-        # Process Response
-        response_text = "Error processing request."
-        returned_a2a_session_id = tool_response_dict.get("session_id")
-        final_state = tool_response_dict.get("state", "unknown")
-
-        if tool_response_dict.get("status") == "success":
-            response_text = tool_response_dict.get("result", "Agent returned success but no result.")
+    for content_item in llm_request.contents:
+        if isinstance(content_item, Content) and hasattr(content_item, 'role'):
+            if content_item.role in allowed_roles:
+                filtered_contents.append(content_item)
         else:
-            response_text = tool_response_dict.get("error", "Unknown error from tool.")
-            logger.error(f"{self.name} tool call failed. State: {final_state}, Error: {response_text}")
+            filtered_contents.append(content_item)
 
-        # Store/Update A2A Session ID
-        if returned_a2a_session_id and returned_a2a_session_id != a2a_session_id:
-            try:
-                app_name = getattr(self, 'app_name', 'UNKNOWN_APP')
-                current_session_data = self._session_service.get_session(
-                    app_name=app_name, user_id=user_id, session_id=session_id
-                )
-                new_state = current_session_data.state if current_session_data and current_session_data.state else {}
-                new_state[A2A_SESSION_ID_KEY] = returned_a2a_session_id
-                self._session_service.update_session(
-                    app_name=app_name, user_id=user_id, session_id=session_id, state=new_state
-                )
-                logger.info(f"Stored/Updated A2A session ID {returned_a2a_session_id} in ADK session {session_id}")
-            except Exception as e:
-                logger.exception(f"Error updating ADK session state for {session_id}:")
+    llm_request.contents = filtered_contents
 
-        # Return Response
-        response_content = Content(role=self.name, parts=[Part(text=response_text)])
-        logger.info(f"Returning response from {self.name} (ADK Session: {session_id}).")
-        return response_content
+
+# Instantiate Mistral Agent (if configured)
+mistral_agent = None
+mistral_model_id = os.environ.get('MISTRAL_MODEL_ID')
+if mistral_model_id:
+    litellm_model_string = f"vertex_ai/{mistral_model_id}"
+    try:
+        mistral_agent = LlmAgent(
+            name=MISTRAL_AGENT_NAME,
+            model=LiteLlm(model=litellm_model_string),
+            description="Conversational agent powered by Mistral.",
+            instruction="Respond directly to the user's query.",
+            before_model_callback=_filter_mistral_history
+        )
+    except Exception as e:
+        logger.error(f"Failed to configure {MISTRAL_AGENT_NAME}: {e}", exc_info=True)
+else:
+    logger.warning(f"MISTRAL_MODEL_ID not set. {MISTRAL_AGENT_NAME} unavailable.")
+
+
+a2a_langgraph_currency_agent: Optional[A2ALangGraphCurrencyAgent] = None # Instantiated in ui/app.py
+A2A_LANGGRAPH_AGENT_NAME = "A2ALangGraphCurrencyAgent"
+
+
+# Assemble Sub-Agents List (Actual list assembled in ui/app.py)
+active_sub_agents = [
+    resource_agent,
+    data_science_agent,
+    githubagent,
+]
+if llm_auditor:
+     active_sub_agents.append(llm_auditor)
+if mistral_agent:
+    active_sub_agents.append(mistral_agent)
+
+
+# Define Meta Agent
+meta_agent = LlmAgent(
+    name="MetaAgent",
+    model=agent_model,
+    description="Coordinator for specialized agents (resources, data, GitHub, currency, auditor) and a chat agent.",
+    instruction=(
+        "You are the primary assistant. Analyze the user's request.\n"
+        "- If it involves managing cloud resources (VMs), delegate to 'ResourceAgent'.\n"
+        "- If it involves BigQuery data or datasets, delegate to 'DataScienceAgent'.\n"
+        "- If it involves GitHub repositories or files, delegate to 'githubagent'.\n"
+        f"- If it asks about GCP services, documentation, or needs GCP fact-checking, delegate to '{LLM_AUDITOR_NAME}'.\n"
+        f"- If the request involves currency conversion, exchange rates, or mentions the 'currency agent', delegate to '{A2A_LANGGRAPH_AGENT_NAME}'.\n"
+        f"- For general conversation, summarization, or if no other agent fits, delegate to '{MISTRAL_AGENT_NAME}'.\n"
+        "Present results clearly."
+    ),
+    # The actual list with the instantiated A2ALangGraphCurrencyAgent is injected in ui/app.py
+    sub_agents=active_sub_agents,
+)
