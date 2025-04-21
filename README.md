@@ -23,37 +23,27 @@ The system features:
 
 ## Project Structure
 
-adk-demo/
-├── agents/                     # Agent definitions and tools
-│   ├── datascience/
-│   │   ├── agent.py            # DataScience Agent
-│   │   └── tools.py            # BigQuery tools
-│   ├── githubagent/
-│   │   ├── agent.py            # GitHub Agent
-│   │   └── tools.py            # GitHub MCP Tools
-│   ├── langgraphagent/
-│   │   └── tools.py            # LangGraph A2A Tool
-│   ├── meta/
-│   │   └── agent.py            # Meta Agent (orchestrator)
-│   └── resource/
-│       ├── agent.py            # Resource Agent
-│       └── tools.py            # Compute Engine tools
-├── assets/
-│   └── td-flow-chart.png       # Diagram
-├── ui/                         # Streamlit UI application
-│   └── app.py
-├── requirements.txt            # Python dependencies for main app
-├── Dockerfile                  # Dockerfile for main ADK/Streamlit app
-├── Dockerfile.langchain        # Dockerfile for external LangGraph agent
-├── Dockerfile.mcp              # Dockerfile for MCP Server (if used)
-├── cloudbuild.yaml             # Cloud Build configuration
-├── setup_trigger.sh            # Script to setup Cloud Build trigger
-├── .env.example                # Example environment file
-├── .env                        # Local environment file (gitignored)
-├── .gitignore                  # Files ignored by Git
-├── LICENSE                     # Project license
-└── README.md                   # This file
-
+    google-agentic/
+    ├── agents/                 # Agent definitions and tools
+    │   ├── datascience/    
+    │   │   ├── agent.py        # DataScience Agent
+    │   │   └── tools.py        # BigQuery tools
+    │   ├── meta/   
+    │   │   └── agent.py        # Meta Agent (orchestrator)
+    │   └── resource/   
+    │       ├── agent.py        # Resource Agent
+    │       └── tools.py        # Compute Engine tools
+    ├── assets/                 
+    │   └── td-flow-chart.png   # Diagram
+    ├── ui/                     # Streamlit UI application
+    │   └── app.py  
+    ├── requirements.txt        # Python dependencies
+    ├── Dockerfile              # Dockerfile for containerization
+    ├── cloudbuild.yaml         # Cloud Build configuration
+    ├── build_then_run.sh       # Build and deploy script
+    ├── .gitignore              # Files ignored by Git
+    ├── LICENSE                 # Project license
+    └── README.md               # This file
 
 ## Prerequisites
 
