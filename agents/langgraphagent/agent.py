@@ -1,7 +1,7 @@
 # adk-demo/agents/langgraphagent/agent.py
 import logging
-# Inherit from LlmAgent instead of Agent
-from google.adk.agents import LlmAgent, Agent
+# Revert inheritance back to base Agent
+from google.adk.agents import Agent
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 from .tools import langgraph_currency_tool
@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 
 A2A_SESSION_ID_KEY = 'langgraph_a2a_session_id'
 
-# Change inheritance from Agent to LlmAgent
-class A2ALangGraphCurrencyAgent(LlmAgent):
+# Revert inheritance back to Agent
+class A2ALangGraphCurrencyAgent(Agent):
     """
     ADK Agent bridge to an external LangGraph Currency Agent via A2A JSON-RPC.
-    Inherits LlmAgent with model=None to satisfy framework expectations.
+    Inherits base Agent as it does not use an LLM directly.
     Manages the A2A session ID across turns using the ADK session service.
     """
     name: str = "A2ALangGraphCurrencyAgent"
@@ -22,22 +22,20 @@ class A2ALangGraphCurrencyAgent(LlmAgent):
 
     def __init__(self, session_service: InMemorySessionService):
         """
-        Initializes the agent, passing model=None to LlmAgent parent.
+        Initializes the agent with the tool and session service.
 
         Args:
             session_service: The ADK session service (InMemorySessionService instance).
         """
-        # Pass model=None to the LlmAgent superclass init
-        super().__init__(model=None, tools=[langgraph_currency_tool])
+        # Call base Agent superclass init (no model parameter)
+        super().__init__(tools=[langgraph_currency_tool])
         self._session_service = session_service
-        logger.info(f"Initialized {self.name} as LlmAgent (model=None) with tool: {langgraph_currency_tool.name}")
+        logger.info(f"Initialized {self.name} as Agent with tool: {langgraph_currency_tool.name}")
 
     # The __call__ method remains the primary logic handler for this agent.
-    # It overrides the default LlmAgent behavior which would involve calling an LLM.
     def __call__(self, message: Content, session_id: str | None = None, user_id: str | None = None) -> Content | None:
         """
         Processes user message, invokes tool, manages A2A session ID via ADK session.
-        This method is called directly when the agent is invoked.
         """
         if not session_id or not user_id:
             logger.error(f"{self.name} requires ADK session_id and user_id.")
