@@ -18,8 +18,6 @@ RUN mkdir -p /app/agents/llm_auditor && \
     cp -R /tmp/adk-samples/agents/llm-auditor/. /app/agents/llm_auditor/ && \
     rm -rf /tmp/adk-samples
 
-COPY agents/a2a_langchain_bridge /app/agents/a2a_langchain_bridge
-
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip \
