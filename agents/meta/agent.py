@@ -14,8 +14,7 @@ from google.genai.types import Content
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
-# --- ADD IMPORT FOR NEW A2A BRIDGE AGENT ---
-from ..a2a_langchain_bridge.agent import a2a_langchain_bridge_agent
+# --- REMOVED IMPORT FOR OLD A2A BRIDGE AGENT ---
 # Assuming llm_auditor was correctly copied by Dockerfile and is importable
 try:
     from agents.llm_auditor.llm_auditor.agent import llm_auditor
@@ -104,27 +103,20 @@ if mistral_agent:
 else:
     logger.warning(f"{MISTRAL_AGENT_NAME} could not be initialized and will not be available.")
 
-# --- ADD A2A BRIDGE AGENT TO THE LIST ---
-active_sub_agents.append(a2a_langchain_bridge_agent)
-logger.info(f"Adding '{a2a_langchain_bridge_agent.name}' to sub-agents list.")
-
 
 # --- Define Meta Agent ---
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model, # Uses gemini-1.5-flash per fetched file
-    description="A helpful assistant coordinating specialized agents (resources, data, GitHub, GCP Support/Auditor, A2A LangGraph Bridge) and a general conversational agent (Mistral).",
+    description="A helpful assistant coordinating specialized agents (resources, data, GitHub, GCP Support/Auditor) and a general conversational agent (Mistral).", # Removed A2A Bridge mention here temporarily
     instruction=(
         "You are the primary assistant. Analyze the user's request.\n"
         "- If it involves managing cloud resources (like creating a VM or dataset), delegate the task to the 'ResourceAgent'.\n"
         "- If it involves querying data from BigQuery, delegate the task to the 'DataScienceAgent'.\n"
         "- If it involves searching GitHub or getting information from a GitHub repository, delegate the task to the 'githubagent'.\n"
         f"- If it asks for information about GCP services, documentation, code examples, or needs factual verification about GCP, delegate the task to the '{LLM_AUDITOR_NAME}'. Provide the user's question or the statement to verify as input to the auditor.\n"
-        # --- MODIFIED ROUTING INSTRUCTION FOR A2A BRIDGE ---
-        f"- If the request is addressed to 'langchain' or 'langgraph' or mentions connecting to an 'external agent', delegate the task to '{a2a_langchain_bridge_agent.name}'.\n"
-        # --- END A2A ROUTING INSTRUCTION ---
         f"- If the request appears to be general conversation, requires summarization, explanation, brainstorming, or doesn't clearly fit other agents, delegate the task to the '{MISTRAL_AGENT_NAME}'.\n"
         "Clearly present the results from the specialist agents or the chat agent back to the user."
     ),
-    sub_agents=active_sub_agents, # Pass the list including the new agent 
+    sub_agents=active_sub_agents, # List no longer includes the old bridge agent
 )
