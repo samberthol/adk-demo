@@ -180,7 +180,7 @@ with st.sidebar:
     with img_col2:
         try: st.image("assets/google-cloud-logo.png", width=300)
         except FileNotFoundError: st.header("☁️ Google Cloud")
-    st.markdown("<h2 style='text-align: center;'>Agent Hub</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>ADK Agent Details</h2>", unsafe_allow_html=True)
     st.divider()
 
     st.header("⚙️ Session Info")
@@ -223,7 +223,7 @@ st.info(
     * **GCP Support Agent:** Answer questions about GCP services and documentation.
     * **Chat Agent:** General conversation with Mistral.
     """,
-    icon="?"
+    icon="i"
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:
