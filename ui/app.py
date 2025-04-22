@@ -6,15 +6,13 @@ import os
 import asyncio
 import nest_asyncio
 from streamlit_mermaid import st_mermaid
-from typing import Tuple, Set, List
+from typing import Tuple, Set
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
-from google.adk.agents import Agent
 
 # Agent Imports
 from agents.meta.agent import meta_agent
-from agents.meta.agent import llm_auditor, mistral_agent
 
 
 APP_NAME = "gcp_multi_agent_demo_streamlit"
@@ -223,7 +221,7 @@ st.info(
     * **GCP Support Agent:** Answer questions about GCP services and documentation.
     * **Chat Agent:** General conversation with Mistral.
     """,
-    icon="i"
+    icon="ℹ️"
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:

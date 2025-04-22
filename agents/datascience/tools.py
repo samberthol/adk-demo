@@ -1,7 +1,6 @@
 # agents/datascience/tools.py
 import google.cloud.bigquery
 import logging
-import pandas as pd
 import os
 from typing import Optional
 from google.api_core.exceptions import Conflict
