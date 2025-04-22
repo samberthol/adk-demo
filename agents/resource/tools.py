@@ -11,7 +11,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def _wait_for_zone_operation(project_id: str, zone: str, operation_id: str):
-    """Waits for a zone operation to complete and returns the result."""
     logger.info(f"Waiting for zone operation {operation_id} in {zone} to complete...")
     zone_operations_client = google.cloud.compute_v1.ZoneOperationsClient()
     while True:
@@ -23,13 +22,12 @@ def _wait_for_zone_operation(project_id: str, zone: str, operation_id: str):
                     error_message = _format_operation_error(result)
                     logger.error(f"Zone operation {operation_id} completed with error: {error_message}")
                 return result
-            time.sleep(5) # Wait before polling again
+            time.sleep(5)
         except Exception as e:
             logger.error(f"Error waiting for zone operation {operation_id}: {e}", exc_info=True)
             raise
 
 def _format_operation_error(operation_result) -> str:
-    """Formats error details from a completed operation object."""
     error_message = "Unknown error during operation."
     if hasattr(operation_result, 'error') and operation_result.error and hasattr(operation_result.error, 'errors') and operation_result.error.errors:
         try:
@@ -56,7 +54,6 @@ def create_vm_instance_func(
     metadata: Optional[Dict[str,str]] = None,
     labels: Optional[Dict[str,str]] = None
 ) -> str:
-    """Creates a Google Compute Engine VM instance, reading defaults from environment variables."""
 
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
@@ -120,7 +117,6 @@ def delete_vm_instance_func(
     zone: Optional[str] = None,
     instance_name: str = ""
 ) -> str:
-    """Deletes a specified Google Compute Engine VM instance."""
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
 
@@ -156,7 +152,6 @@ def list_vm_instances_func(
     zone: Optional[str] = None,
     filter_expression: Optional[str] = None
 ) -> str:
-    """Lists Google Compute Engine VM instances in a specified project and zone."""
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
 
@@ -200,7 +195,6 @@ def start_vm_instance_func(
     zone: Optional[str] = None,
     instance_name: str = ""
 ) -> str:
-    """Starts a specified Google Compute Engine VM instance."""
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
 
@@ -237,7 +231,6 @@ def stop_vm_instance_func(
     zone: Optional[str] = None,
     instance_name: str = ""
 ) -> str:
-    """Stops a specified Google Compute Engine VM instance."""
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
 
@@ -274,7 +267,6 @@ def get_vm_instance_details_func(
     zone: Optional[str] = None,
     instance_name: str = ""
 ) -> str:
-    """Gets detailed information about a specified Google Compute Engine VM instance."""
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', 'hostproject1-355311')
     zone = zone or os.environ.get('VM_DEFAULT_ZONE', 'us-central1-c')
 

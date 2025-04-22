@@ -13,7 +13,6 @@ def run_bigquery_query_func(
     project_id: Optional[str] = None,
     query: str = ""
     ) -> str:
-    """Executes a SQL query against BigQuery and returns the results as a string."""
 
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', None)
 
@@ -33,7 +32,6 @@ def run_bigquery_query_func(
         if df.empty:
             return "Query executed successfully, but returned no results."
         else:
-            # Consider limiting the size of the returned string for very large results
             return df.to_string(index=False)
 
     except Exception as e:
@@ -52,7 +50,6 @@ def create_bq_dataset_func(
     dataset_id: str = "",
     location: Optional[str] = None
     ) -> str:
-    """Creates a BigQuery dataset."""
 
     project_id = project_id or os.environ.get('GCP_PROJECT_ID', None)
     location = location or os.environ.get('BQ_DEFAULT_LOCATION', 'US')

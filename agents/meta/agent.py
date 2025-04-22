@@ -9,14 +9,11 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest
 from google.genai.types import Content
 
-# Import sub-agents that are still agents
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
-# Import the TOOL for the LangGraph agent communication
 from agents.langgraphagent.tools import langgraph_currency_tool
 
-# Assuming llm_auditor was correctly copied
 try:
     from agents.llm_auditor.llm_auditor.agent import llm_auditor
     LLM_AUDITOR_LOADED = True
@@ -33,7 +30,6 @@ agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
 MISTRAL_AGENT_NAME = "MistralChatAgent"
 
 
-# Callback Function to Filter Mistral History (if used)
 def _filter_mistral_history(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> None:
@@ -50,7 +46,6 @@ def _filter_mistral_history(
     llm_request.contents = filtered_contents
 
 
-# Instantiate Mistral Agent (if configured)
 mistral_agent = None
 mistral_model_id = os.environ.get('MISTRAL_MODEL_ID')
 if mistral_model_id:
@@ -69,7 +64,6 @@ else:
     logger.warning(f"MISTRAL_MODEL_ID not set. {MISTRAL_AGENT_NAME} unavailable.")
 
 
-# Assemble Sub-Agents List (excluding the bridge agent)
 active_sub_agents = [
     resource_agent,
     data_science_agent,
@@ -80,13 +74,10 @@ if llm_auditor:
 if mistral_agent:
     active_sub_agents.append(mistral_agent)
 
-# Assemble Tools list for MetaAgent
 meta_agent_tools = [
-    langgraph_currency_tool, # Add the A2A tool directly
+    langgraph_currency_tool,
 ]
 
-
-# Define Meta Agent
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,
@@ -103,6 +94,6 @@ meta_agent = LlmAgent(
         f"- For general conversation, summarization, or if no other agent fits, delegate to '{MISTRAL_AGENT_NAME}'.\n"
         "Present results clearly from tools or delegated agents."
     ),
-    sub_agents=active_sub_agents, # Pass the list of sub-agents
-    tools=meta_agent_tools # Pass the list of direct tools
+    sub_agents=active_sub_agents,
+    tools=meta_agent_tools
 )

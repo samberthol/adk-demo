@@ -12,10 +12,6 @@ MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
 def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
-    """
-    Helper function to invoke a specific tool on the MCP server wrapped by mcpo.
-    Constructs the URL based on the tool name. Includes enhanced logging.
-    """
     if not MCP_SERVER_URL:
         logger.error("MCP_SERVER_URL is not set in environment variables.")
         return "Error: MCP_SERVER_URL environment variable is not set. Cannot contact MCP server."
@@ -74,10 +70,6 @@ def _invoke_mcp_tool(tool_name: str, inputs: dict) -> str:
         return f"An unexpected error occurred while calling the MCP tool via mcpo: {str(e)}"
 
 def search_github_repositories_func(query: str = "") -> str:
-    """
-    Searches GitHub repositories using the 'search_repositories' tool via the MCP server (mcpo wrapper).
-    Requires a search query.
-    """
     if not query:
         return "GitHub search failed: Search query is required."
     mcp_tool_name = "search_repositories"
@@ -85,11 +77,6 @@ def search_github_repositories_func(query: str = "") -> str:
     return _invoke_mcp_tool(mcp_tool_name, inputs)
 
 def get_github_repo_file_func(owner: str = "", repo: str = "", path: str = "") -> str:
-    """
-    Gets the content of a file from a GitHub repository using the 'get_file_contents' tool via the MCP server (mcpo wrapper).
-
-    Requires repository owner, repository name, and the file path (e.g., 'README.md').
-    """
     if not owner: return "Get file failed: Repository owner is required."
     if not repo: return "Get file failed: Repository name is required."
     if not path: return "Get file failed: File path is required."

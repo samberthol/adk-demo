@@ -7,18 +7,13 @@ import asyncio
 import nest_asyncio
 from streamlit_mermaid import st_mermaid
 from typing import Tuple, Set, List
-
-# ADK Core Imports
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
-# Agent class needed for type hints if used, but specific agents often imported directly
 from google.adk.agents import Agent
 
 # Agent Imports
-# Import the main meta_agent instance (now configured with its direct tools)
 from agents.meta.agent import meta_agent
-# Import optional agents (used only for logging/display purposes here now)
 from agents.meta.agent import llm_auditor, mistral_agent
 
 
@@ -29,7 +24,7 @@ ADK_SERVICE_KEY = f'adk_service_{APP_NAME}'
 ADK_RUNNER_KEY = f'adk_runner_{APP_NAME}'
 MESSAGE_HISTORY_KEY = f"messages_{APP_NAME}"
 LAST_TURN_AUTHOR_KEY = f"last_author_{APP_NAME}"
-ACTIVATED_AGENTS_KEY = f"activated_agents_{APP_NAME}" # Note: This might not show tool usage directly
+ACTIVATED_AGENTS_KEY = f"activated_agents_{APP_NAME}"
 
 st.set_page_config(
     layout="wide",
@@ -47,7 +42,6 @@ except RuntimeError as e:
          logger.error(f"Error applying nest_asyncio: {e}")
 
 def get_runner_and_session_id():
-    """Initializes ADK services and runner, storing them in session state."""
 
     if ADK_SERVICE_KEY not in st.session_state:
         logger.info("Creating new InMemorySessionService.")
@@ -58,11 +52,8 @@ def get_runner_and_session_id():
     if ADK_RUNNER_KEY not in st.session_state:
         logger.info("Creating new Runner.")
 
-        # --- No longer need to instantiate bridge agent or dynamically update sub_agents ---
-        # --- MetaAgent is imported fully configured from agents.meta.agent ---
-
         st.session_state[ADK_RUNNER_KEY] = Runner(
-            agent=meta_agent, # Use the imported meta_agent instance
+            agent=meta_agent,
             app_name=APP_NAME,
             session_service=session_service
         )
@@ -76,7 +67,6 @@ def get_runner_and_session_id():
         st.session_state[ADK_SESSION_ID_KEY] = session_id
         logger.info(f"Generated new ADK session ID: {session_id}")
         try:
-            # Pass initial state if needed, e.g., empty dict {}
             session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state={})
             logger.info(f"Created session {session_id} in service.")
         except Exception as e:
@@ -102,26 +92,23 @@ async def run_adk_async(runner: Runner, session_id: str, user_id: str, user_mess
     content = Content(role='user', parts=[Part(text=user_message_text)])
     final_response_text = "[Agent did not respond]"
     final_response_author = "assistant"
-    activated_agents_set = set() # This tracks agents, direct tool calls won't appear here
+    activated_agents_set = set()
 
     try:
         async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
             author = event.author
-            # Track activated sub-agents (tool calls by MetaAgent won't be tracked this way)
             if author and author != 'user' and author != runner.agent.name:
                 activated_agents_set.add(author)
-            # Capture the last text part as the response
             if event.content and event.content.parts and hasattr(event.content.parts[0], 'text'):
                  final_response_text = event.content.parts[0].text
-                 final_response_author = author or runner.agent.name # Default to MetaAgent if author is None
+                 final_response_author = author or runner.agent.name
 
     except Exception as e:
         logger.exception("Exception during agent execution:")
         final_response_text = f"Sorry, an error occurred: {e}"
         final_response_author = "error"
-        activated_agents_set.add("error") # Add MetaAgent too?
+        activated_agents_set.add("error")
 
-    # If MetaAgent did the work (e.g., called a tool), add it to activated set for display
     if not activated_agents_set and final_response_author == runner.agent.name:
         activated_agents_set.add(runner.agent.name)
     elif final_response_author == "error":
@@ -138,14 +125,12 @@ def run_adk_sync(runner: Runner, session_id: str, user_id: str, user_message_tex
         logger.exception("Exception during run_adk_sync:")
         return f"An error occurred: {e}", "error", {"error"}
 
-# Updated Icons (Removed bridge agent)
 AGENT_ICONS = {
     "user": "🧑‍💻",
     "MetaAgent": "🧠",
     "ResourceAgent": "☁️",
     "DataScienceAgent": "📊",
     "githubagent": "🐙",
-    # "A2ALangGraphCurrencyAgent": "💱", # Removed
     "MistralChatAgent": "🌬️",
     "llm_auditor": "🔎",
     "assistant": "🤖",
@@ -156,13 +141,12 @@ def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], la
     if not root_agent_name: return "graph TD;\n  Error[ADK Runner not initialized];\n"
     mermaid_lines = ["graph TD"]
     nodes_to_draw = activated_agents.copy() if activated_agents else set()
-    # Add root agent if it exists and isn't the only one active (unless it's an error)
     if root_agent_name and (len(nodes_to_draw) > 1 or (len(nodes_to_draw) == 1 and "error" not in nodes_to_draw)):
          nodes_to_draw.add(root_agent_name)
-    elif not nodes_to_draw and last_author == root_agent_name: # Handle case where MetaAgent replies directly (e.g. after tool use)
+    elif not nodes_to_draw and last_author == root_agent_name:
          nodes_to_draw.add(root_agent_name)
     elif "error" in nodes_to_draw:
-         nodes_to_draw.add(root_agent_name) # Show root agent on error too
+         nodes_to_draw.add(root_agent_name)
 
     if not nodes_to_draw:
          mermaid_lines.append(f'    Idle["{AGENT_ICONS.get("assistant", "?")} Waiting..."]:::default')
@@ -170,7 +154,6 @@ def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], la
         for name in nodes_to_draw:
             icon = AGENT_ICONS.get(name, '❓')
             mermaid_lines.append(f'    {name}["{icon} {name}"]')
-        # Draw arrows only if MetaAgent is present and other nodes exist
         if root_agent_name in nodes_to_draw and len(nodes_to_draw) > 1:
             for name in nodes_to_draw:
                 if name != root_agent_name and name != "error":
@@ -178,7 +161,6 @@ def generate_mermaid_syntax(root_agent_name: str, activated_agents: Set[str], la
         mermaid_lines.append('    classDef default fill:#fff,stroke:#333,stroke-width:2px,color:#333')
         mermaid_lines.append('    classDef active fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000')
         for name in nodes_to_draw:
-            # Highlight the actual author, even if it's MetaAgent after a tool call
             node_class = "active" if last_author == name else "default"
             mermaid_lines.append(f'    {name}:::{node_class}')
     return "\n".join(mermaid_lines) + "\n"

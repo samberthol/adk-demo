@@ -1,5 +1,4 @@
 # Dockerfile.langchain
-# Builds the LangGraph Currency Agent, simplifying CMD to rely on PORT env var.
 
 FROM python:3.13-slim
 
@@ -15,20 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone the full A2A repository
 RUN git clone --depth 1 https://github.com/google/A2A.git ${REPO_ROOT}
 
-# Set the working directory *inside* the agent's folder
 WORKDIR ${REPO_ROOT}/samples/python/agents/langgraph
 
-# Install Python dependencies
 RUN uv pip install --system .
 
 EXPOSE ${PORT}
 
-# Run the application using uv, relying on PORT environment variable
-# Removed the explicit --port ${PORT} argument
 CMD ["uv", "run", ".", "--host", "0.0.0.0"]
