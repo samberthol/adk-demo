@@ -28,7 +28,7 @@ ACTIVATED_AGENTS_KEY = f"activated_agents_{APP_NAME}"
 
 st.set_page_config(
     layout="wide",
-    page_title="GCP Agent Hub",
+    page_title="Google Cloud ADK Agent Hub",
     page_icon="☁️"
     )
 
@@ -210,20 +210,20 @@ with st.sidebar:
     with st.expander("Show Full Session ID"):
         st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
 
-st.title("☁️ GCP Agent Hub")
+st.title("☁️ ADK Agent Details")
 st.caption("Powered by Google ADK")
 
 st.info(
     """
     **What I can help with:**
-    * **GCP Resources:** Manage Compute Engine VMs and BigQuery Datasets.
-    * **BigQuery Data:** Execute SQL queries.
-    * **GitHub:** Search repositories and get file contents.
-    * **Currency:** Get exchange rates (e.g., "1 USD to EUR?").
-    * **GCP Support:** Answer questions about GCP services and documentation.
-    * **Chat:** General conversation.
+    * **GCP Resources Agent:** Manage Compute Engine VMs and BigQuery Datasets.
+    * **BigQuery Data Agent:** Execute SQL queries.
+    * **GitHub Agent:** Search repositories and get file contents.
+    * **Currency Agent:** Get exchange rates (e.g., "1 USD to EUR?").
+    * **GCP Support Agent:** Answer questions about GCP services and documentation.
+    * **Chat Agent:** General conversation with Mistral.
     """,
-    icon="ℹ️"
+    icon="?"
 )
 
 if MESSAGE_HISTORY_KEY not in st.session_state:
