@@ -184,6 +184,8 @@ with st.sidebar:
     st.header("⚙️ Session Info")
     if current_adk_session_id: st.success(f"Session Active ✅")
     else: st.error("Session Inactive ❌")
+    with st.expander("Show Full Session ID"):
+        st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
     if st.button("🔄 Clear Chat & Reset Session"):
         keys_to_pop = [MESSAGE_HISTORY_KEY, ADK_SESSION_ID_KEY, ADK_RUNNER_KEY, ADK_SERVICE_KEY, LAST_TURN_AUTHOR_KEY, ACTIVATED_AGENTS_KEY]
         for key in keys_to_pop: st.session_state.pop(key, None)
@@ -192,7 +194,7 @@ with st.sidebar:
     st.divider()
 
     st.header("🤖 Agent Activity")
-    graph_col1, graph_col2, graph_col3 = st.columns([1, 4, 1])
+    graph_col1, graph_col2, graph_col3 = st.columns([1, 12, 1])
     with graph_col2:
         if root_agent_name:
             last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
@@ -204,11 +206,10 @@ with st.sidebar:
                  logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
                  st.error("Error displaying activity.")
         else:
-            st.warning("Runner not initialized.")
-    with st.expander("Show Full Session ID"):
-        st.code(st.session_state.get(ADK_SESSION_ID_KEY, 'N/A'))
+            st.warning("Runner not initialized.")  
+    st.divider()
 
-st.title("☁️ ADK Agent Details")
+st.title("☁️ Google Cloud ADK Agent Hub")
 st.caption("Powered by Google ADK")
 
 st.info(
