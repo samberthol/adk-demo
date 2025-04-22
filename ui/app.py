@@ -194,14 +194,14 @@ with st.sidebar:
     st.divider()
 
     st.header("🤖 Agent Activity")
-    graph_col1, graph_col2, graph_col3 = st.columns([1, 12, 1])
+    graph_col1, graph_col2, graph_col3 = st.columns([1, 2, 1])
     with graph_col2:
         if root_agent_name:
             last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
             activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
             try:
                 mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
-                st_mermaid(mermaid_syntax, height=350)
+                st_mermaid(mermaid_syntax, height=400)
             except Exception as e:
                  logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
                  st.error("Error displaying activity.")
