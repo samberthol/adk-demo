@@ -6,12 +6,12 @@ This is a small project that demonstrates a multi-agent system built with the Go
 
 The system features:
 
-* **`MetaAgent`**: Routes user requests to the appropriate specialized agent or uses tools directly.
+* **`MetaAgent`**: Uses Gemini and routes user requests to the appropriate specialized agent or uses tools directly.
 * **`ResourceAgent`**: Manages [Google Compute Engine](https://cloud.google.com/compute/docs) VM instances (create, delete, list, start, stop, get details) through the GCE API.
 * **`DataScienceAgent`**: Interacts with [Google BigQuery](https://cloud.google.com/bigquery/docs) (runs queries, creates datasets).
 * **`GithubAgent`**: Interacts with GitHub via it's official [MCP server](https://github.com/github/github-mcp-server).
 * **`MistralChatAgent`**: A Mistral-Small agent integrated via LiteLLM for general conversation.
-* **Currency Conversion**: The `MetaAgent` uses a tool to communicate via A2A with an external LangGraph-based agent (running as a separate service) to get currency exchange rates using the Frankfurter API and Gemini.
+* **Currency Conversion**: The `MetaAgent` uses a tool to communicate via [A2A](https://google.github.io/A2A/#/) with an external [LangGraph-based agent](https://github.com/google/A2A/tree/main/samples/python/agents/langgraph) (running as a separate service) to get currency exchange rates using the Frankfurter API and Gemini.
 * **Streamlit UI**: Provides a web interface for interacting with the agents.
 * **Deployment Scripts**: Automates building and deployment using [Google Cloud Build](https://cloud.google.com/build/docs) to deploy on [Google Cloud Run](https://cloud.google.com/run/docs) using a [Cloud Build Trigger](https://cloud.google.com/build/docs/triggers) on the GitHub repo. Container images are stored in [Google Artifact Registry](https://cloud.google.com/artifact-registry/docs).
 
