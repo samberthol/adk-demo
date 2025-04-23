@@ -17,4 +17,5 @@ pydantic
 streamlit-mermaid
 PyGithub
 python-dotenv
+lxml[html_clean]
 newspaper3k
