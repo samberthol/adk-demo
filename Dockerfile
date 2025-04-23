@@ -6,7 +6,6 @@ WORKDIR /app
 ENV PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
     git \
     tini \
     && apt-get clean \
@@ -20,8 +19,7 @@ RUN mkdir -p /app/agents/llm_auditor && \
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir gunicorn ffmpeg-python google-generativeai
+    && pip install --no-cache-dir --upgrade -r requirements.txt
 
 COPY . .
 

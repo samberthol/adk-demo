@@ -1,5 +1,6 @@
 # requirements.txt
 streamlit
+google-generativeai
 google-cloud-bigquery
 google-cloud-compute
 google-auth
@@ -16,6 +17,5 @@ litellm
 pydantic
 streamlit-mermaid
 PyGithub
-python-dotenv
 lxml[html_clean]
 newspaper3k
