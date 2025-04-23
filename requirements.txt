@@ -17,3 +17,5 @@ pydantic
 streamlit-mermaid
 PyGithub
 python-dotenv
+newspaper3k
+google-api-python-client

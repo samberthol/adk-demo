@@ -9,9 +9,11 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest
 from google.genai.types import Content
 
+# Import existing specialized agents
 from agents.resource.agent import resource_agent
 from agents.datascience.agent import data_science_agent
 from agents.githubagent.agent import githubagent
+from agents.deepresearch.coordinator.agent import deep_research_coordinator
 from agents.langgraphagent.tools import langgraph_currency_tool
 
 try:
@@ -26,10 +28,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash')
+agent_model = os.environ.get('AGENT_MODEL_NAME', 'gemini-2.0-flash') 
 MISTRAL_AGENT_NAME = "MistralChatAgent"
 
 
+# Callback Function to Filter Mistral History (if used)
 def _filter_mistral_history(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> None:
@@ -46,6 +49,7 @@ def _filter_mistral_history(
     llm_request.contents = filtered_contents
 
 
+# Instantiate Mistral Agent
 mistral_agent = None
 mistral_model_id = os.environ.get('MISTRAL_MODEL_ID')
 if mistral_model_id:
@@ -64,10 +68,12 @@ else:
     logger.warning(f"MISTRAL_MODEL_ID not set. {MISTRAL_AGENT_NAME} unavailable.")
 
 
+# Assemble Sub-Agents List
 active_sub_agents = [
     resource_agent,
     data_science_agent,
     githubagent,
+    deep_research_coordinator,
 ]
 if llm_auditor:
      active_sub_agents.append(llm_auditor)
@@ -78,20 +84,21 @@ meta_agent_tools = [
     langgraph_currency_tool,
 ]
 
+
+# Define Meta Agent with updated instructions
 meta_agent = LlmAgent(
     name="MetaAgent",
     model=agent_model,
-    description="Coordinator for specialized agents and tools (resources, data, GitHub, currency, auditor) and a chat agent.",
+    description="Coordinator for specialized agents and tools (resources, data, GitHub, currency, auditor, deep research) and a chat agent.",
     instruction=(
-        "You are the primary assistant. Analyze the user's request.\n"
+        "You are the primary assistant. Analyze the user's request carefully.\n"
+        "- If the request involves **in-depth research**, **investigation**, creating a **detailed report**, or analyzing a complex topic, delegate the *entire* request to 'DeepResearchCoordinatorAgent'. Examples: 'Investigate the impact of AI regulation', 'Create a detailed report on quantum computing advancements', 'Research the effects of climate change on agriculture'.\n"
         "- If it involves managing cloud resources (VMs), delegate to 'ResourceAgent'.\n"
         "- If it involves BigQuery data or datasets, delegate to 'DataScienceAgent'.\n"
         "- If it involves GitHub repositories or files, delegate to 'githubagent'.\n"
         f"- If it asks about GCP services, documentation, or needs GCP fact-checking, delegate to '{LLM_AUDITOR_NAME}'.\n"
-        # --- UPDATED: Use Tool ---
         f"- If the request involves currency conversion or exchange rates, use the tool 'langgraph_currency_a2a_tool_func'. Provide the user's query to the tool.\n"
-        # --- End Tool Instruction ---
-        f"- For general conversation, summarization, or if no other agent fits, delegate to '{MISTRAL_AGENT_NAME}'.\n"
+        f"- For general conversation, summarization, or if no other specialist agent fits, delegate to '{MISTRAL_AGENT_NAME}'.\n"
         "Present results clearly from tools or delegated agents."
     ),
     sub_agents=active_sub_agents,
