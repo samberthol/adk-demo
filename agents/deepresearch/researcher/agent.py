@@ -1,7 +1,7 @@
 # agents/deepresearch/researcher/agent.py
 import os
 from google.adk.agents import LlmAgent
-from google.adk.tools.builtins import SearchTool
+from google.adk.tools import SearchTool
 from ..tools.tools import extract_tool
 
 agent_model = 'gemini-2.0-flash'
