@@ -5,15 +5,11 @@ from typing import Dict, Any, Optional, List, Tuple
 
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
-# Corrected import: Only import models directly available under adk.models
 from google.adk.models import LlmRequest, LlmResponse
-# Corrected import: Removed FunctionResponse, kept ToolContext if needed elsewhere,
-# but ToolContext is not actually used in this specific file's logic currently.
-# If ToolContext is needed for other tools/callbacks later, ensure it's imported correctly.
-# For now, removing FunctionResponse is the key fix.
 from google.adk.tools import ToolContext
 # Corrected import: Import Content, Part, and ToolConfig from google.genai.types
-from google.genai.types import Content, Part, ToolConfig
+# Also import the necessary sub-classes/enums for ToolConfig
+from google.genai.types import Content, Part, ToolConfig, FunctionLibrary
 
 from ..planner.agent import research_planner_agent
 from ..researcher.agent import researcher_agent
@@ -22,28 +18,26 @@ from ..writer.agent import writing_agent
 from ..editor.agent import editor_agent
 
 # --- State Keys ---
-# These keys will be used in the session state dictionary
 COORD_STEP_KEY = "coord_step"
 RESEARCH_PLAN_KEY = "research_plan"
-RESEARCH_FINDINGS_KEY = "research_findings" # List to store findings from each task
+RESEARCH_FINDINGS_KEY = "research_findings"
 AGGREGATED_FINDINGS_KEY = "aggregated_findings"
 ANALYSIS_DOSSIER_KEY = "analysis_dossier"
 DRAFT_ARTICLE_KEY = "draft_article"
 EDITED_ARTICLE_KEY = "edited_article"
-CURRENT_RESEARCH_TASK_INDEX_KEY = "current_research_task_index" # To track progress within step 2
-PARSED_RESEARCH_TASKS_KEY = "parsed_research_tasks" # Store the list of task blocks
-INITIAL_QUERY_KEY = "initial_query" # Key to store the user's initial query
+CURRENT_RESEARCH_TASK_INDEX_KEY = "current_research_task_index"
+PARSED_RESEARCH_TASKS_KEY = "parsed_research_tasks"
+INITIAL_QUERY_KEY = "initial_query"
 
-# Define the sequence of steps and the sub-agent/action for each
-# Step numbers are 1-based for clarity in instructions/state
+# Define the sequence of steps
 WORKFLOW_STEPS: Dict[int, Dict[str, Any]] = {
     1: {"action": "call_planner", "agent": research_planner_agent.name},
-    2: {"action": "execute_research_tasks", "agent": researcher_agent.name}, # This step involves a loop
-    3: {"action": "aggregate_findings"}, # No agent call, just processing
+    2: {"action": "execute_research_tasks", "agent": researcher_agent.name},
+    3: {"action": "aggregate_findings"},
     4: {"action": "call_analyzer", "agent": analysis_loop_agent.name},
     5: {"action": "call_writer", "agent": writing_agent.name},
     6: {"action": "call_editor", "agent": editor_agent.name},
-    7: {"action": "assemble_output"}, # Final step, generates response
+    7: {"action": "assemble_output"},
 }
 # --- End State Keys ---
 
@@ -55,16 +49,12 @@ logger = logging.getLogger(__name__)
 def before_coord_model(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> None:
-    """
-    Injects current step information into the LLM request.
-    Reads state before the LLM call.
-    """
+    """Injects current step information into the LLM request."""
     state = callback_context.session_context.state
-    current_step = state.get(COORD_STEP_KEY, 1) # Default to step 1 if not set
+    current_step = state.get(COORD_STEP_KEY, 1)
 
-    # Store the initial user query if it's the very first turn for this agent
     if current_step == 1 and INITIAL_QUERY_KEY not in state:
-        user_query = "User query not found in history." # Default
+        user_query = "User query not found in history."
         if llm_request.contents:
             for content in reversed(llm_request.contents):
                  if hasattr(content, 'role') and content.role == 'user' and hasattr(content, 'parts') and content.parts:
@@ -97,10 +87,7 @@ def before_coord_model(
 def after_coord_model(
     callback_context: CallbackContext, llm_response: LlmResponse
 ) -> None:
-    """
-    Processes the LLM response, updates state, and potentially advances the step.
-    Writes state after the LLM call.
-    """
+    """Processes the LLM response, updates state, and potentially advances the step."""
     state = callback_context.session_context.state
     current_step = state.get(COORD_STEP_KEY, 1)
     step_info = WORKFLOW_STEPS.get(current_step)
@@ -115,9 +102,8 @@ def after_coord_model(
     next_step = current_step
     step_completed = False
 
-    # Process based on current step
+    # --- Process based on current step ---
 
-    # Check for function calls
     if llm_response.function_calls:
         func_call = llm_response.function_calls[0]
         logger.info(f"Coordinator state: LLM requested function call: {func_call.name}")
@@ -136,14 +122,10 @@ def after_coord_model(
         else:
              logger.warning(f"Coordinator state: LLM requested transfer to wrong agent '{func_args.get('agent_name')}' during step {current_step}. Expected '{expected_agent_name}'.")
 
-    # Check for FunctionResponse (result from previous turn's sub-agent call)
-    # Access items in llm_response.function_responses list directly
     elif llm_response.function_responses:
-        # func_response object has .name and .response attributes
         func_response = llm_response.function_responses[0]
-        func_response_name = getattr(func_response, 'name', 'UnknownFunction') # Safely get name
+        func_response_name = getattr(func_response, 'name', 'UnknownFunction')
         logger.info(f"Coordinator state: Received function response for: {func_response_name}")
-
         expected_agent_name = step_info.get("agent")
 
         if func_response_name == expected_agent_name:
@@ -159,8 +141,7 @@ def after_coord_model(
                 if current_step == 1: # Planner result
                     state[RESEARCH_PLAN_KEY] = response_content
                     logger.info("Coordinator state: Stored research plan.")
-                    try:
-                        # Parse Plan
+                    try: # Parse Plan
                         tasks = []
                         current_task_lines = []
                         lines = response_content.strip().splitlines()
@@ -178,7 +159,6 @@ def after_coord_model(
                         if current_task_lines:
                              task_text = "\n".join(current_task_lines).strip()
                              if "**Task_ID:**" in task_text: tasks.append(task_text)
-
                         if not tasks:
                              logger.error("Coordinator state: Failed to parse any valid tasks from the plan.")
                              step_completed = False
@@ -190,7 +170,6 @@ def after_coord_model(
                     except Exception as e:
                          logger.error(f"Coordinator state: Error parsing research plan: {e}", exc_info=True)
                          step_completed = False
-
                 elif current_step == 2: # Researcher result
                     task_index = state.get(CURRENT_RESEARCH_TASK_INDEX_KEY, 0)
                     if RESEARCH_FINDINGS_KEY not in state: state[RESEARCH_FINDINGS_KEY] = []
@@ -200,7 +179,6 @@ def after_coord_model(
                     else:
                         logger.error(f"Coordinator state: {RESEARCH_FINDINGS_KEY} is not a list. Cannot store finding.")
                         state[RESEARCH_FINDINGS_KEY] = [response_content]
-
                     next_task_index = task_index + 1
                     parsed_tasks = state.get(PARSED_RESEARCH_TASKS_KEY, [])
                     if next_task_index < len(parsed_tasks):
@@ -210,7 +188,6 @@ def after_coord_model(
                     else:
                         logger.info("Coordinator state: All research tasks completed.")
                         step_completed = True # Ready for step 3
-
                 elif current_step == 4: # Analyzer result
                     state[ANALYSIS_DOSSIER_KEY] = response_content
                     logger.info("Coordinator state: Stored analysis dossier.")
@@ -226,13 +203,10 @@ def after_coord_model(
                 else:
                      logger.warning(f"Coordinator state: Received function response for unexpected step {current_step}")
                      step_completed = False
-
-                if step_completed:
-                    next_step = current_step + 1
+                if step_completed: next_step = current_step + 1
         else:
              logger.warning(f"Coordinator state: Received function response for unexpected function '{func_response_name}'. Expected '{expected_agent_name}'.")
 
-    # Check for direct text response
     elif llm_response.text:
         logger.info("Coordinator state: LLM provided direct text response.")
         if current_step == 3: # Aggregate Findings
@@ -251,7 +225,6 @@ def after_coord_model(
             logger.info("Coordinator state: Executing Step 7: Assemble Final Output.")
             edited_article = state.get(EDITED_ARTICLE_KEY)
             analysis_dossier = state.get(ANALYSIS_DOSSIER_KEY)
-
             if not edited_article:
                  logger.error("Coordinator state: Cannot assemble final output, edited article missing.")
                  llm_response.text = "Error: Failed to generate the final article."
@@ -273,7 +246,6 @@ def after_coord_model(
                                 else: logger.warning("Coordinator state: Found reference header but no content after it.")
                            else: logger.warning("Coordinator state: 'Master Reference List' section header not found in dossier.")
                       except Exception as e: logger.error(f"Coordinator state: Error extracting references from dossier: {e}")
-
                  final_output = f"{edited_article}\n\n{references}"
                  llm_response.text = final_output
                  logger.info("Coordinator state: Final output assembled.")
@@ -331,6 +303,10 @@ deep_research_coordinator = LlmAgent(
     tools=[], # Coordinator doesn't call external tools directly
     before_model_callback=before_coord_model,
     after_model_callback=after_coord_model,
-    # Enable function calling for agent transfers
-    tool_config=ToolConfig(function_calling_config="auto")
+    # Corrected ToolConfig initialization
+    tool_config=ToolConfig(
+        function_calling_config=ToolConfig.FunctionCallingConfig(
+            mode=ToolConfig.FunctionCallingConfig.Mode.AUTO
+        )
+    )
 )
