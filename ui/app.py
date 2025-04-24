@@ -131,6 +131,7 @@ AGENT_ICONS = {
     "githubagent": "🐙",
     "MistralChatAgent": "🌬️",
     "llm_auditor": "🔎",
+    "DeepResearchCoordinatorAgent": "🔬",
     "assistant": "🤖",
     "error": "🚨"
 }
@@ -206,7 +207,7 @@ with st.sidebar:
                  logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
                  st.error("Error displaying activity.")
         else:
-            st.warning("Runner not initialized.")  
+            st.warning("Runner not initialized.")
     st.divider()
 
 st.title("☁️ Google Cloud ADK Agent Hub")
@@ -215,6 +216,7 @@ st.caption("Powered by Google ADK")
 st.info(
     """
     **What I can help with:**
+    * **Deep Research Agent:** Conduct in-depth research and generate reports.
     * **GCP Resources Agent:** Manage Compute Engine VMs and BigQuery Datasets.
     * **BigQuery Data Agent:** Execute SQL queries.
     * **GitHub Agent:** Search repositories and get file contents.
