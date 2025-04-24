@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest, LlmResponse
-from google.genai.types import Content, Part 
+from google.genai.types import Content, Part # ToolConfig and FunctionCallingConfig removed as not needed here
 
 from ..planner.agent import research_planner_agent
 from ..researcher.agent import researcher_agent
@@ -47,7 +47,8 @@ def before_coord_model(
     callback_context: CallbackContext, llm_request: LlmRequest
 ) -> None:
     """Injects current step information into the LLM request."""
-    state = callback_context.session_context.state
+    # Corrected: Access state directly from callback_context
+    state = callback_context.state
     current_step = state.get(COORD_STEP_KEY, 1)
 
     if current_step == 1 and INITIAL_QUERY_KEY not in state:
@@ -85,7 +86,8 @@ def after_coord_model(
     callback_context: CallbackContext, llm_response: LlmResponse
 ) -> None:
     """Processes the LLM response, updates state, and potentially advances the step."""
-    state = callback_context.session_context.state
+    # Corrected: Access state directly from callback_context
+    state = callback_context.state
     current_step = state.get(COORD_STEP_KEY, 1)
     step_info = WORKFLOW_STEPS.get(current_step)
     initial_query = state.get(INITIAL_QUERY_KEY, 'Missing Query')
@@ -258,6 +260,7 @@ def after_coord_model(
 
     # Update State
     if next_step != current_step:
+        # Corrected: Access state directly from callback_context
         state[COORD_STEP_KEY] = next_step
         logger.info(f"Coordinator state: Advanced to step {next_step}.")
     elif step_completed:
@@ -297,7 +300,8 @@ deep_research_coordinator = LlmAgent(
         writing_agent,
         editor_agent,
     ],
-    tools=[],
+    tools=[], # Coordinator doesn't call external tools directly
     before_model_callback=before_coord_model,
     after_model_callback=after_coord_model
+    # Removed tool_config=... as it's not a valid LlmAgent parameter
 )
