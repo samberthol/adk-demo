@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest, LlmResponse
-from google.genai.types import Content, Part, ToolConfig
+from google.genai.types import Content, Part, ToolConfig, FunctionCallingConfig
 
 from ..planner.agent import research_planner_agent
 from ..researcher.agent import researcher_agent
@@ -297,13 +297,12 @@ deep_research_coordinator = LlmAgent(
         writing_agent,
         editor_agent,
     ],
-    tools=[], # Coordinator doesn't call external tools directly
+    tools=[],
     before_model_callback=before_coord_model,
     after_model_callback=after_coord_model,
-    # Corrected ToolConfig initialization
     tool_config=ToolConfig(
-        function_calling_config=ToolConfig.FunctionCallingConfig(
-            mode=ToolConfig.FunctionCallingConfig.Mode.AUTO
+        function_calling_config=FunctionCallingConfig(
+            mode=FunctionCallingConfig.Mode.AUTO
         )
     )
 )
