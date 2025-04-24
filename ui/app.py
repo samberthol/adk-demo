@@ -175,9 +175,9 @@ except Exception as e:
     current_adk_session_id = None
 
 with st.sidebar:
-    img_col1, img_col2, img_col3 = st.columns([2, 4, 2])
+    img_col1, img_col2, img_col3 = st.columns([1, 4, 1])
     with img_col2:
-        try: st.image("assets/google-cloud-logo.png", width=300)
+        try: st.image("assets/google-cloud-logo.png", width=400)
         except FileNotFoundError: st.header("☁️ Google Cloud")
     st.markdown("<h2 style='text-align: center;'>ADK Agent Details</h2>", unsafe_allow_html=True)
     st.divider()
@@ -195,14 +195,14 @@ with st.sidebar:
     st.divider()
 
     st.header("🤖 Agent Activity")
-    graph_col1, graph_col2, graph_col3 = st.columns([1, 2, 1])
+    graph_col1, graph_col2, graph_col3 = st.columns([1, 6, 1])
     with graph_col2:
         if root_agent_name:
             last_author = st.session_state.get(LAST_TURN_AUTHOR_KEY)
             activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
             try:
                 mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
-                st_mermaid(mermaid_syntax, height=400)
+                st_mermaid(mermaid_syntax, height=800, width=400)
             except Exception as e:
                  logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
                  st.error("Error displaying activity.")
