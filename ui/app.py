@@ -202,7 +202,7 @@ with st.sidebar:
             activated_agents = st.session_state.get(ACTIVATED_AGENTS_KEY)
             try:
                 mermaid_syntax = generate_mermaid_syntax(root_agent_name, activated_agents, last_author)
-                st_mermaid(mermaid_syntax, height=800, width=400)
+                st_mermaid(mermaid_syntax, height=800, width=800)
             except Exception as e:
                  logger.error(f"Error displaying Mermaid chart: {e}", exc_info=True)
                  st.error("Error displaying activity.")

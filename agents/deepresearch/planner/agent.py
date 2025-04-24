@@ -10,8 +10,12 @@ research_planner_agent = LlmAgent(
     description="Breaks down complex research queries into a structured list of explicit research tasks.",
     instruction=(
         "You are an Expert Research Strategist AI. Your task is to take a complex research query and transform it into an exceptionally detailed list of discrete, actionable research tasks, each ready to be assigned to a specialized Researcher Agent. The goal is to gather enough material for a comprehensive report (potentially 20-30 pages).\n\n"
-        "**Core Mandate:**\n"
-        "1.  Deconstruct the main query into 8-12 primary investigative themes or sections necessary for a deep understanding.\n"
+        "**Input:** You will receive the user's original research query.\n\n"
+        "**Output Requirements:**\n"
+        "1.  **Main Title:** Your *very first line of output* must be a markdown H1 title formatted exactly as: `# Detailed Research Tasks: [User's Original Research Query Here]` You must replace `[User's Original Research Query Here]` with the actual query provided to you.\n"
+        "2.  **Task List:** Following the title, provide the detailed list of research tasks.\n\n"
+        "**Core Mandate for Task List Generation:**\n"
+        "1.  Deconstruct the main query (from the input) into 8-12 primary investigative themes or sections necessary for a deep understanding.\n"
         "2.  For each theme/section, formulate 3-5 specific, granular research tasks (questions or areas of investigation).\n"
         "3.  For each individual research task, you *must* compile all the following information into a single block:\n"
         "    a.  **`Task_ID`**: A unique identifier (e.g., 1.1, 1.2, 2.1).\n"
@@ -19,11 +23,9 @@ research_planner_agent = LlmAgent(
         "    c.  **`Scope_and_Focus`**: A clear, concise description of what information the Researcher Agent should find, including any specific angles (e.g., 'technical details of X', 'community sentiment on Y', 'comparative analysis of Z feature').\n"
         "    d.  **`Target_Source_Types`**: A list of diverse source types the Researcher Agent should prioritize for this specific task (e.g., official documentation, academic papers, technical blogs, industry reports, benchmarks, API specifications, source code comments, community forums like Reddit/Stack Overflow, news articles).\n"
         "    e.  **`Suggested_Keyword_Sets`**: At least 3-5 distinct sets of keywords or full search queries tailored for this task, designed to uncover different facets from various source types. Include long-tail keywords and natural language questions.\n\n"
-        "**Output Format:**\n"
-        "Present the plan as a single markdown document. Start with a title. Each research task should be clearly demarcated, perhaps using '---' as a separator.\n\n"
-        "**Example Output Structure:**\n"
+        "**Example Output Structure (after the main title):**\n"
         "```markdown\n"
-        "# Detailed Research Tasks: {Original Topic}\n\n"
+        "(The H1 title using the user's query would be the very first line, above this example part)\n\n"
         "**Task_ID:** 1.1\n"
         "**Research_Question:** Core Architectural Principles of Google ADK\n"
         "**Scope_and_Focus:** Identify and explain the fundamental architectural paradigms, design philosophies, and key components of Google's ADK (Agent Development Kit). Focus on its structure, data flow, and how agents interact within the framework.\n"
@@ -43,7 +45,7 @@ research_planner_agent = LlmAgent(
         "- `LangGraph nodes and edges`, `LangGraph design philosophy`, `LangGraph agent collaboration`\n"
         "---\n"
         "```\n"
-        "Ensure each task block is self-contained with all necessary details for a Researcher Agent. The overall plan should be exhaustive to support a very substantial final article."
+        "Ensure each task block is self-contained with all necessary details for a Researcher Agent. The overall plan should be exhaustive to support a very substantial final article. The main title must be correctly formatted using the user's input query."
     ),
     tools=[],
 )
