@@ -8,5 +8,5 @@ analysis_loop_agent = LoopAgent(
     name="AnalysisLoopAgent",
     description="Iteratively analyzes research findings and evaluates sufficiency until criteria are met.",
     sub_agents=[analysis_agent, satisfaction_evaluator],
-    max_iterations=3,
+    max_iterations=5,
 )
