@@ -7,7 +7,7 @@ from ..loop.agent import analysis_loop_agent
 from ..writer.agent import writing_agent
 from ..editor.agent import editor_agent
 
-agent_model = 'gemini-2.5-pro-preview-03-25'
+agent_model = 'gemini-2.5-pro-preview-03-25' # Consider using a powerful model for coordination
 
 deep_research_coordinator = LlmAgent(
     name="DeepResearchCoordinatorAgent",
@@ -25,7 +25,7 @@ deep_research_coordinator = LlmAgent(
         "1.  **Step 1: Determine Topic and Plan Research Tasks**\n"
         "    a.  Examine the conversation history, specifically the initial user query that initiated this research task. **Identify the core research topic** from that query.\n"
         "    b.  You *must now call* the `ResearchPlanner` agent. Pass the *original user query text* (containing the topic) as the input to the `ResearchPlanner`.\n"
-        "    c.  The `ResearchPlanner` will return a markdown document titled '# Detailed Research Tasks: {Topic}', containing multiple task blocks, each starting with '**Task_ID:**' and separated by '---'. Store this entire document.\n\n"
+        "    c.  The `ResearchPlanner` will return a markdown document containing multiple task blocks, each starting with '**Task_ID:**' and separated by '---'. Store this entire document. (The title will reflect the research topic).\n\n" # <<< Corrected this line
         "2.  **Step 2: Execute Sequential Research (Iterate Through ALL Tasks)**\n"
         "    a.  From the research plan document obtained in Step 1c, you *must now parse* it to identify each individual research task block (from one '---' or start to the next '---').\n"
         "    b.  Initialize an empty list to store research findings.\n"
