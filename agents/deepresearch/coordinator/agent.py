@@ -302,7 +302,7 @@ deep_research_coordinator = LlmAgent(
     after_model_callback=after_coord_model,
     tool_config=ToolConfig(
         function_calling_config=FunctionCallingConfig(
-            mode=FunctionCallingConfig.Mode.AUTO
+            mode="AUTO"
         )
     )
 )
