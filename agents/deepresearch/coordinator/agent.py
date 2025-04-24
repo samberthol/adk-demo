@@ -23,15 +23,15 @@ deep_research_coordinator = LlmAgent(
         "- `EditorAgent`: Accepts the 'Draft Article' AND the 'Comprehensive Analysis Dossier', and returns the final 'Edited Article' in markdown.\n\n"
         "**Mandatory Execution Workflow (Complete ALL steps):**\n"
         "1.  **Step 1: Determine Topic and Plan Research Tasks**\n"
-        "    a.  Examine the conversation history, specifically the initial user query that initiated this research task. **Identify the core research topic** from that query.\n"
-        "    b.  You *must now call* the `ResearchPlanner` agent. Pass the *original user query text* (containing the topic) as the input to the `ResearchPlanner`.\n"
-        "    c.  The `ResearchPlanner` will return a markdown document containing multiple task blocks, each starting with '**Task_ID:**' and separated by '---'. Store this entire document. (The title will reflect the research topic).\n\n" # <<< Corrected this line
+        "    a.  Examine the conversation history, specifically the initial user query that initiated this research task. Identify the core research topic from that query.\n"
+        "    b.  You *must now call* the `ResearchPlanner` agent. **Invoke the transfer using *only* the agent name (`ResearchPlanner`). Do NOT pass the user query as an argument to the transfer function.** The `ResearchPlanner` will access the necessary query information from the context/history.\n" # <<< Corrected this line
+        "    c.  The `ResearchPlanner` will return a markdown document containing multiple task blocks, each starting with '**Task_ID:**' and separated by '---'. Store this entire document. (The title will reflect the research topic).\n\n"
         "2.  **Step 2: Execute Sequential Research (Iterate Through ALL Tasks)**\n"
         "    a.  From the research plan document obtained in Step 1c, you *must now parse* it to identify each individual research task block (from one '---' or start to the next '---').\n"
         "    b.  Initialize an empty list to store research findings.\n"
         "    c.  For *each and every task block* identified in the plan:\n"
         "        i.  Extract the *entire content* of that task block (Task_ID, Research_Question, Scope, Source Types, Suggested_Keyword_Sets).\n"
-        "        ii. You *must now call* the `ResearcherAgent`, providing this complete task block content as its input.\n"
+        "        ii. You *must now call* the `ResearcherAgent`. **Invoke the transfer using *only* the agent name (`ResearcherAgent`) and pass the extracted task block content as the primary input/argument expected by that agent's execution flow (likely implicitly handled by ADK when transferring). Do NOT add extra keyword arguments like 'query' or 'task_details' unless the target agent's function signature explicitly requires them.** \n" # <<< Added specificity here
         "        iii. Collect the markdown result (findings for that specific task) returned by `ResearcherAgent`.\n"
         "        iv. Append this result to your list of research findings.\n"
         "    d.  If the plan is empty or no tasks can be parsed, note this and proceed to output an error message stating the plan was unusable.\n\n"
@@ -40,15 +40,15 @@ deep_research_coordinator = LlmAgent(
         "    b.  If no findings were collected (e.g., all researcher tasks failed or plan was empty), note this and proceed to output an error message stating research was unsuccessful.\n\n"
         "4.  **Step 4: Perform Iterative Analysis**\n"
         "    a.  Take the aggregated research string from Step 3a.\n"
-        "    b.  You *must now call* the `AnalysisLoopAgent` with this aggregated research string.\n"
+        "    b.  You *must now call* the `AnalysisLoopAgent`. Invoke the transfer using *only* the agent name (`AnalysisLoopAgent`) and pass the aggregated findings as the primary input.\n" # <<< Added specificity here
         "    c.  The `AnalysisLoopAgent` will return a final 'Comprehensive Analysis Dossier' (markdown). Store this dossier carefully; it's crucial for the next steps AND for the final reference list.\n\n"
         "5.  **Step 5: Write Draft Article**\n"
         "    a.  Take the 'Comprehensive Analysis Dossier' from Step 4c.\n"
-        "    b.  You *must now call* the `WritingAgent` with this dossier.\n"
+        "    b.  You *must now call* the `WritingAgent`. Invoke the transfer using *only* the agent name (`WritingAgent`) and pass the dossier as the primary input.\n" # <<< Added specificity here
         "    c.  The `WritingAgent` will return a 'Draft Article' (markdown). Store this draft.\n\n"
         "6.  **Step 6: Edit Article**\n"
         "    a.  Take the 'Draft Article' from Step 5c AND the 'Comprehensive Analysis Dossier' from Step 4c.\n"
-        "    b.  You *must now call* the `EditorAgent`, providing *both* these documents as input (clearly demarcate them if passing as a single string, or ensure the tool call mechanism supports multiple distinct inputs if ADK allows). The `EditorAgent` needs the dossier for verification.\n"
+        "    b.  You *must now call* the `EditorAgent`. Invoke the transfer using *only* the agent name (`EditorAgent`) and pass *both* the draft article and the dossier as the primary input.\n" # <<< Added specificity here
         "    c.  The `EditorAgent` will return the final 'Edited Article' (markdown).\n\n"
         "7.  **Step 7: Final Output Assembly**\n"
         "    a.  Take the final 'Edited Article' from Step 6c.\n"
@@ -63,6 +63,7 @@ deep_research_coordinator = LlmAgent(
         "```\n"
         "**Critical Instructions:**\n"
         "-   You are an orchestrator. Your role is to call the sub-agents in the correct sequence and pass the data faithfully.\n"
+        "-   When calling sub-agents, transfer control using *only the agent name* unless explicitly told otherwise for specific data inputs needed by the target agent's core function.\n" # <<< General instruction added
         "-   Do not summarize or alter the content from sub-agents unless explicitly told to (e.g., aggregation in Step 3a).\n"
         "-   If a step seems to fail or a sub-agent provides unexpected/empty output where content is crucial (e.g., empty plan, no findings, empty analysis dossier), you should indicate the point of failure and stop, rather than trying to continue with missing data. For instance: 'Processing Error: ResearchPlanner returned an empty plan. Cannot proceed.'\n"
         "-   Ensure you complete *all 7 steps* to produce the final article and its references."
