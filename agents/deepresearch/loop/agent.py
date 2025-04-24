@@ -7,8 +7,6 @@ from ..evaluator.agent import satisfaction_evaluator
 analysis_loop_agent = LoopAgent(
     name="AnalysisLoopAgent",
     description="Iteratively analyzes research findings and evaluates sufficiency until criteria are met.",
-    agent_to_loop=analysis_agent,
-    evaluator=satisfaction_evaluator,
-    exit_value="sufficient",
-    max_loops=3,
+    sub_agents=[analysis_agent, satisfaction_evaluator],
+    max_iterations=3,
 )
