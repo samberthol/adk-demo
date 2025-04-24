@@ -7,7 +7,11 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 # Corrected import: Only import models directly available under adk.models
 from google.adk.models import LlmRequest, LlmResponse
-from google.adk.tools import ToolContext, FunctionResponse
+# Corrected import: Removed FunctionResponse, kept ToolContext if needed elsewhere,
+# but ToolContext is not actually used in this specific file's logic currently.
+# If ToolContext is needed for other tools/callbacks later, ensure it's imported correctly.
+# For now, removing FunctionResponse is the key fix.
+from google.adk.tools import ToolContext
 # Corrected import: Import Content, Part, and ToolConfig from google.genai.types
 from google.genai.types import Content, Part, ToolConfig
 
@@ -62,11 +66,8 @@ def before_coord_model(
     if current_step == 1 and INITIAL_QUERY_KEY not in state:
         user_query = "User query not found in history." # Default
         if llm_request.contents:
-            # Look backwards for the last user message part
             for content in reversed(llm_request.contents):
-                 # Ensure content has a role and parts before accessing
                  if hasattr(content, 'role') and content.role == 'user' and hasattr(content, 'parts') and content.parts:
-                     # Find the first text part
                      text_part = next((p.text for p in content.parts if hasattr(p, 'text')), None)
                      if text_part:
                          user_query = text_part
@@ -74,30 +75,21 @@ def before_coord_model(
         state[INITIAL_QUERY_KEY] = user_query
         logger.info(f"Coordinator state: Stored initial query: '{user_query[:100]}...'")
 
-
-    # Modify the prompt/instructions for the LLM based on the current step
     step_info = WORKFLOW_STEPS.get(current_step)
     step_description = f"Executing Step {current_step}: {step_info['action']}" if step_info else f"Unknown Step {current_step}"
-
-    # Prepend state info as a system message
     state_prompt = f"SYSTEM_INFO: You are currently on step {current_step} of the research workflow. Your goal is to execute this step based on the overall instructions and stored state. Step details: {step_description}."
-    # Use the imported Part class correctly
     system_message = Content(role='system', parts=[Part(text=state_prompt)])
 
-    # Insert the system message before the last user/assistant message if possible
     inserted = False
     if llm_request.contents:
          for i in range(len(llm_request.contents) - 1, -1, -1):
              content = llm_request.contents[i]
-             # Check attributes before accessing
              if hasattr(content, 'role') and content.role in ('user', 'assistant'):
-                 llm_request.contents.insert(i + 1, system_message) # Insert *after* the last user/assistant message
+                 llm_request.contents.insert(i + 1, system_message)
                  inserted = True
                  break
     if not inserted:
-         # If no user/assistant message or empty contents, add at the beginning
          llm_request.contents.insert(0, system_message)
-
 
     logger.info(f"Coordinator state: BEFORE model call. Current Step: {current_step}. Prompt modified.")
 
@@ -112,7 +104,7 @@ def after_coord_model(
     state = callback_context.session_context.state
     current_step = state.get(COORD_STEP_KEY, 1)
     step_info = WORKFLOW_STEPS.get(current_step)
-    initial_query = state.get(INITIAL_QUERY_KEY, 'Missing Query') # Retrieve stored query
+    initial_query = state.get(INITIAL_QUERY_KEY, 'Missing Query')
 
     logger.info(f"Coordinator state: AFTER model call. Current Step: {current_step}. Got LLM Response.")
 
@@ -123,86 +115,69 @@ def after_coord_model(
     next_step = current_step
     step_completed = False
 
-    # --- Process based on current step ---
+    # Process based on current step
 
-    # Check for function calls first
+    # Check for function calls
     if llm_response.function_calls:
         func_call = llm_response.function_calls[0]
         logger.info(f"Coordinator state: LLM requested function call: {func_call.name}")
-
         expected_agent_name = step_info.get("agent")
         is_transfer = func_call.name == 'transfer_to_agent'
-
-        # Check attributes before accessing .args
         func_args = func_call.args if hasattr(func_call, 'args') else {}
 
         if is_transfer and expected_agent_name and func_args.get('agent_name') == expected_agent_name:
             logger.info(f"Coordinator state: Correct agent transfer requested for step {current_step}: {expected_agent_name}")
-            # Logic for handling transfers based on step (logging only for now)
-            if current_step == 2: # Calling Researcher
+            if current_step == 2:
                 task_index = state.get(CURRENT_RESEARCH_TASK_INDEX_KEY, 0)
                 logger.info(f"Coordinator state: Transferring to Researcher for task index {task_index}.")
-            # Add similar logging for other steps if needed
             step_completed = False # Waiting for sub-agent result
-
         elif func_call.name != 'transfer_to_agent':
              logger.warning(f"Coordinator state: LLM called unexpected tool '{func_call.name}' during step {current_step}.")
         else:
              logger.warning(f"Coordinator state: LLM requested transfer to wrong agent '{func_args.get('agent_name')}' during step {current_step}. Expected '{expected_agent_name}'.")
 
-    # Check for FunctionResponse
+    # Check for FunctionResponse (result from previous turn's sub-agent call)
+    # Access items in llm_response.function_responses list directly
     elif llm_response.function_responses:
+        # func_response object has .name and .response attributes
         func_response = llm_response.function_responses[0]
-        logger.info(f"Coordinator state: Received function response for: {func_response.name}")
+        func_response_name = getattr(func_response, 'name', 'UnknownFunction') # Safely get name
+        logger.info(f"Coordinator state: Received function response for: {func_response_name}")
 
         expected_agent_name = step_info.get("agent")
 
-        if hasattr(func_response, 'name') and func_response.name == expected_agent_name:
+        if func_response_name == expected_agent_name:
             logger.info(f"Coordinator state: Received result from expected agent '{expected_agent_name}' for step {current_step}.")
-            # Ensure response content exists and is a dictionary before accessing 'content'
             response_data = func_response.response if isinstance(func_response.response, dict) else {}
             response_content = response_data.get("content", "Error: No content in response")
 
-
             if isinstance(response_content, str) and ("error" in response_content.lower() or "failed" in response_content.lower()):
                  logger.error(f"Coordinator state: Sub-agent {expected_agent_name} reported an error: {response_content}")
-                 step_completed = False # Stop on sub-agent error
+                 step_completed = False
             else:
-                # Store the result in the state based on the step
+                # Store result based on step
                 if current_step == 1: # Planner result
                     state[RESEARCH_PLAN_KEY] = response_content
                     logger.info("Coordinator state: Stored research plan.")
                     try:
-                        # --- Parse Plan ---
+                        # Parse Plan
                         tasks = []
                         current_task_lines = []
-                        # Split carefully, handling potential blank lines and markdown variations
                         lines = response_content.strip().splitlines()
                         plan_title = lines[0] if lines and lines[0].startswith("#") else "Research Plan"
                         start_index = 1 if lines and lines[0].startswith("#") else 0
-
                         for line in lines[start_index:]:
                             stripped_line = line.strip()
-                            # Check for task separator or start of a new task ID
                             is_separator = stripped_line == '---'
                             is_new_task = stripped_line.startswith("**Task_ID:**")
-
                             if (is_separator or is_new_task) and current_task_lines:
-                                # Finalize the previous task
                                 task_text = "\n".join(current_task_lines).strip()
-                                if "**Task_ID:**" in task_text: # Basic validation
-                                     tasks.append(task_text)
-                                current_task_lines = [] # Reset for next task
-
-                            if not is_separator: # Don't include the separator line itself
-                                current_task_lines.append(line)
-
-                        # Add the last task if any lines were collected
+                                if "**Task_ID:**" in task_text: tasks.append(task_text)
+                                current_task_lines = []
+                            if not is_separator: current_task_lines.append(line)
                         if current_task_lines:
                              task_text = "\n".join(current_task_lines).strip()
-                             if "**Task_ID:**" in task_text:
-                                 tasks.append(task_text)
-                        # --- End Parse Plan ---
+                             if "**Task_ID:**" in task_text: tasks.append(task_text)
 
                         if not tasks:
                              logger.error("Coordinator state: Failed to parse any valid tasks from the plan.")
@@ -211,21 +186,20 @@ def after_coord_model(
                              state[PARSED_RESEARCH_TASKS_KEY] = tasks
                              state[CURRENT_RESEARCH_TASK_INDEX_KEY] = 0
                              logger.info(f"Coordinator state: Parsed {len(tasks)} research tasks from plan titled '{plan_title}'.")
-                             step_completed = True # Ready for step 2
+                             step_completed = True
                     except Exception as e:
                          logger.error(f"Coordinator state: Error parsing research plan: {e}", exc_info=True)
                          step_completed = False
 
-                elif current_step == 2: # Researcher result for one task
+                elif current_step == 2: # Researcher result
                     task_index = state.get(CURRENT_RESEARCH_TASK_INDEX_KEY, 0)
                     if RESEARCH_FINDINGS_KEY not in state: state[RESEARCH_FINDINGS_KEY] = []
-                    # Ensure state list exists before appending
                     if isinstance(state.get(RESEARCH_FINDINGS_KEY), list):
                         state[RESEARCH_FINDINGS_KEY].append(response_content)
                         logger.info(f"Coordinator state: Stored finding for task index {task_index}.")
                     else:
                         logger.error(f"Coordinator state: {RESEARCH_FINDINGS_KEY} is not a list. Cannot store finding.")
-                        state[RESEARCH_FINDINGS_KEY] = [response_content] # Attempt recovery
+                        state[RESEARCH_FINDINGS_KEY] = [response_content]
 
                     next_task_index = task_index + 1
                     parsed_tasks = state.get(PARSED_RESEARCH_TASKS_KEY, [])
@@ -255,9 +229,8 @@ def after_coord_model(
 
                 if step_completed:
                     next_step = current_step + 1
-
         else:
-             logger.warning(f"Coordinator state: Received function response for unexpected function '{getattr(func_response, 'name', 'N/A')}'. Expected '{expected_agent_name}'.")
+             logger.warning(f"Coordinator state: Received function response for unexpected function '{func_response_name}'. Expected '{expected_agent_name}'.")
 
     # Check for direct text response
     elif llm_response.text:
@@ -265,16 +238,15 @@ def after_coord_model(
         if current_step == 3: # Aggregate Findings
             logger.info("Coordinator state: Executing Step 3: Aggregate Findings.")
             findings = state.get(RESEARCH_FINDINGS_KEY, [])
-            if isinstance(findings, list) and findings: # Check if it's a non-empty list
-                # Join with double newline and separator for clarity
-                aggregated = "\n\n---\n\n".join(str(f) for f in findings) # Ensure all are strings
+            if isinstance(findings, list) and findings:
+                aggregated = "\n\n---\n\n".join(str(f) for f in findings)
                 state[AGGREGATED_FINDINGS_KEY] = aggregated
                 logger.info(f"Coordinator state: Aggregated {len(findings)} findings.")
                 step_completed = True
                 next_step = current_step + 1
             else:
                 logger.error(f"Coordinator state: Cannot aggregate findings, none found or not a list in state.")
-                step_completed = False # Stop if no findings
+                step_completed = False
         elif current_step == 7: # Assemble Final Output
             logger.info("Coordinator state: Executing Step 7: Assemble Final Output.")
             edited_article = state.get(EDITED_ARTICLE_KEY)
@@ -287,54 +259,41 @@ def after_coord_model(
                  next_step = 99 # End with error
             else:
                  references = "## Sources Consulted\nNo sources were listed in the analysis dossier."
-                 if analysis_dossier and isinstance(analysis_dossier, str): # Check if dossier exists and is string
+                 if analysis_dossier and isinstance(analysis_dossier, str):
                       try:
-                           # Improved reference extraction
                            ref_header = "## VI. Master Reference List"
                            ref_start_index = analysis_dossier.find(ref_header)
                            if ref_start_index != -1:
-                                # Start content after the header line
                                 content_start = analysis_dossier.find('\n', ref_start_index) + 1
                                 if content_start > 0:
                                      ref_content_block = analysis_dossier[content_start:]
-                                     # Find the end (next H2 or end of string)
                                      next_h2_index = ref_content_block.find("\n## ")
-                                     if next_h2_index != -1:
-                                          ref_content_block = ref_content_block[:next_h2_index]
+                                     if next_h2_index != -1: ref_content_block = ref_content_block[:next_h2_index]
                                      references = f"## Sources Consulted\n{ref_content_block.strip()}"
-                                else:
-                                     logger.warning("Coordinator state: Found reference header but no content after it.")
-                           else:
-                               logger.warning("Coordinator state: 'Master Reference List' section header not found in dossier.")
-                      except Exception as e:
-                           logger.error(f"Coordinator state: Error extracting references from dossier: {e}")
+                                else: logger.warning("Coordinator state: Found reference header but no content after it.")
+                           else: logger.warning("Coordinator state: 'Master Reference List' section header not found in dossier.")
+                      except Exception as e: logger.error(f"Coordinator state: Error extracting references from dossier: {e}")
 
                  final_output = f"{edited_article}\n\n{references}"
-                 llm_response.text = final_output # Modify response
+                 llm_response.text = final_output
                  logger.info("Coordinator state: Final output assembled.")
                  step_completed = True
                  next_step = 99 # End successfully
         else:
-             # If LLM gives text during a step expecting a function call, log it but don't advance.
              logger.warning(f"Coordinator state: Received unexpected text response during step {current_step}. Expected function call/response. Text: {llm_response.text[:100]}...")
              step_completed = False
 
     else:
-        # No function calls, no function responses, no text -> LLM likely halted
         logger.warning(f"Coordinator state: LLM provided no actionable response for step {current_step}. Workflow may be stuck.")
         step_completed = False
 
-
-    # --- Update State ---
+    # Update State
     if next_step != current_step:
         state[COORD_STEP_KEY] = next_step
         logger.info(f"Coordinator state: Advanced to step {next_step}.")
     elif step_completed:
-         # This case indicates the step logic completed but didn't advance the step number
-         # (e.g., staying in step 2 for the next research task).
          logger.info(f"Coordinator state: Step {current_step} logic completed, but staying on step {current_step} (e.g., loop iteration).")
     else:
-         # Step logic did not complete successfully or waiting for sub-agent
          logger.info(f"Coordinator state: Staying on step {current_step}.")
 
 
