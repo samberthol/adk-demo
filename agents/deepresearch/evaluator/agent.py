@@ -2,7 +2,7 @@
 import os
 from google.adk.agents import LlmAgent
 
-agent_model = 'gemini-2.0-flash'
+agent_model = 'gemini-2.5-pro-preview-03-25'
 
 satisfaction_evaluator = LlmAgent(
     name="SatisfactionEvaluator",

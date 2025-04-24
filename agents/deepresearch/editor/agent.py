@@ -2,7 +2,7 @@
 import os
 from google.adk.agents import LlmAgent
 
-agent_model = 'gemini-2.0-flash' # CRITICAL: Highly recommend a more powerful model (e.g., Gemini 1.5 Pro) for this agent
+agent_model = 'gemini-2.5-pro-preview-03-25'
 
 editor_agent = LlmAgent(
     name="EditorAgent",

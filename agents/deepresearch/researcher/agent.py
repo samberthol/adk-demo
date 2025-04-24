@@ -4,7 +4,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
 from ..tools.tools import extract_tool
 
-agent_model = 'gemini-2.0-flash' # Consider a more powerful model if 'flash' struggles with this detailed prompt
+agent_model = 'gemini-2.5-pro-preview-03-25'
 
 researcher_agent = LlmAgent(
     name="ResearcherAgent",
