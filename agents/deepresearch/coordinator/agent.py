@@ -61,25 +61,63 @@ def before_coord_model(
     if current_step == 2:
         logger.info(f"Coordinator state (Before Step 2 LLM call): Current llm_request.contents (before adding context for step 2): {llm_request.contents}")
 
-
     step_info = WORKFLOW_STEPS.get(current_step)
     step_action_description = step_info['action'] if step_info else f"Unknown Step {current_step}"
-    
-    dynamic_context_text = (
-        f"COORDINATOR_CONTEXT:\n"
-        f"Current Step: {current_step} ({step_action_description})\n"
-        f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
-        f"Instruction: As the DeepResearchCoordinatorAgent, your task is to determine and request the correct next action for step {current_step}, which is '{step_action_description}'. "
-        f"Consult your main agent instruction for how to perform this step (e.g., calling a specific sub-agent or preparing data)."
-    )
-    
+
+    dynamic_context_text = ""
+    appended_messages_count = 0
+
     if current_step == 2:
-        logger.info(f"Coordinator state (Before Step 2 LLM call): Generated dynamic_context_text for step 2: '{dynamic_context_text}'")
+        current_task_index = state.get(CURRENT_RESEARCH_TASK_INDEX_KEY, 0)
+        parsed_tasks = state.get(PARSED_RESEARCH_TASKS_KEY, [])
 
-    context_as_user_message = Content(role='user', parts=[Part(text=dynamic_context_text)])
-    llm_request.contents.append(context_as_user_message)
+        if parsed_tasks and 0 <= current_task_index < len(parsed_tasks):
+            current_task_for_researcher = parsed_tasks[current_task_index]
+            researcher_input_text = (
+                f"RESEARCHER_TASK_INPUT:\n"
+                f"You are the ResearcherAgent. Here is the specific task you need to execute:\n\n"
+                f"{current_task_for_researcher}\n\n"
+                f"Follow your detailed instructions for research execution and output format."
+            )
+            researcher_task_message = Content(role='user', parts=[Part(text=researcher_input_text)])
+            llm_request.contents.append(researcher_task_message)
+            appended_messages_count += 1
+            logger.info(f"Coordinator state (Before Step 2 LLM call): Appended specific task for researcher (task index {current_task_index}): '{str(current_task_for_researcher)[:100]}...'")
 
-    logger.info(f"Coordinator state: BEFORE model call. Current Step: {current_step}. Appended dynamic context as 'user' message.")
+            dynamic_context_text = (
+                f"COORDINATOR_CONTEXT:\n"
+                f"Current Step: {current_step} ({step_action_description})\n"
+                f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
+                f"Instruction: As the DeepResearchCoordinatorAgent, the specific research task for the ResearcherAgent (task {current_task_index + 1} of {len(parsed_tasks)}) has been prepared and added to the immediate context. "
+                f"Your task is to now call 'transfer_to_agent' for the '{researcher_agent.name}' to execute this task. "
+                f"Ensure you use the exact agent name '{researcher_agent.name}'."
+            )
+        else:
+            logger.warning(
+                f"Coordinator state (Step 2): Failed to retrieve valid research task. Index: {current_task_index}, Tasks available: {len(parsed_tasks)}. Instructing coordinator to handle error."
+            )
+            dynamic_context_text = (
+                f"COORDINATOR_CONTEXT:\n"
+                f"Current Step: {current_step} ({step_action_description})\n"
+                f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
+                f"Instruction: As the DeepResearchCoordinatorAgent, there was an error preparing the specific research task for the ResearcherAgent (task index {current_task_index} out of bounds or no tasks). "
+                f"Please report this issue or try to replan if appropriate, according to your main instructions for handling errors."
+            )
+    else:
+        # Standard instruction for other steps
+        dynamic_context_text = (
+            f"COORDINATOR_CONTEXT:\n"
+            f"Current Step: {current_step} ({step_action_description})\n"
+            f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
+            f"Instruction: As the DeepResearchCoordinatorAgent, your task is to determine and request the correct next action for step {current_step}, which is '{step_action_description}'. "
+            f"Consult your main agent instruction for how to perform this step (e.g., calling a specific sub-agent or preparing data)."
+        )
+
+    coordinator_context_message = Content(role='user', parts=[Part(text=dynamic_context_text)])
+    llm_request.contents.append(coordinator_context_message)
+    appended_messages_count += 1
+
+    logger.info(f"Coordinator state: BEFORE model call. Current Step: {current_step}. Appended {appended_messages_count} message(s) to llm_request.contents.")
 
 
 def after_coord_model(
