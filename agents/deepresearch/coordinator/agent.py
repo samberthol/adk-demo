@@ -269,13 +269,13 @@ def after_coord_model(
                     elif current_step_being_processed != 2: # For other steps, if completed, advance
                         next_step = current_step_being_processed + 1
                     # If step 2 completed a task but not all tasks, next_step remains current_step_being_processed
-            else: # if step_completed_in_callback is False
-                next_step = current_step_being_processed
+                else: # if step_completed_in_callback is False
+                    next_step = current_step_being_processed
 
-            # NEW LOGGING FOR STEP 1 CONCLUSION - Placed after next_step is determined
-            if current_step_being_processed == 1:
-                logger.info(f"Coordinator state (Step 1 Conclusion): current_step_being_processed={current_step_being_processed}, step_completed_in_callback={step_completed_in_callback}, determined next_step value={next_step}")
-        else:
+                # NEW LOGGING FOR STEP 1 CONCLUSION - Placed after next_step is determined
+                if current_step_being_processed == 1:
+                    logger.info(f"Coordinator state (Step 1 Conclusion): current_step_being_processed={current_step_being_processed}, step_completed_in_callback={step_completed_in_callback}, determined next_step value={next_step}")
+        else: # This 'else' corresponds to 'if func_response_name == expected_agent_name:'
              logger.warning(f"Coordinator state: Received function response from unexpected sub-agent '{func_response_name}'. Expected '{expected_agent_name}'.")
 
     elif response_text is not None: # Coordinator's own LLM returned text (not a function call/response)
