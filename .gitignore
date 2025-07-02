@@ -6,7 +6,7 @@ __pycache__/
 .Python
 env/
 venv/
-agents/deepresearch
+agents/deepresearch/
 
 # Secrets
 .env
