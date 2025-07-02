@@ -61,25 +61,63 @@ def before_coord_model(
     if current_step == 2:
         logger.info(f"Coordinator state (Before Step 2 LLM call): Current llm_request.contents (before adding context for step 2): {llm_request.contents}")
 
-
     step_info = WORKFLOW_STEPS.get(current_step)
     step_action_description = step_info['action'] if step_info else f"Unknown Step {current_step}"
-    
-    dynamic_context_text = (
-        f"COORDINATOR_CONTEXT:\n"
-        f"Current Step: {current_step} ({step_action_description})\n"
-        f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
-        f"Instruction: As the DeepResearchCoordinatorAgent, your task is to determine and request the correct next action for step {current_step}, which is '{step_action_description}'. "
-        f"Consult your main agent instruction for how to perform this step (e.g., calling a specific sub-agent or preparing data)."
-    )
-    
+
+    dynamic_context_text = ""
+    appended_messages_count = 0
+
     if current_step == 2:
-        logger.info(f"Coordinator state (Before Step 2 LLM call): Generated dynamic_context_text for step 2: '{dynamic_context_text}'")
+        current_task_index = state.get(CURRENT_RESEARCH_TASK_INDEX_KEY, 0)
+        parsed_tasks = state.get(PARSED_RESEARCH_TASKS_KEY, [])
 
-    context_as_user_message = Content(role='user', parts=[Part(text=dynamic_context_text)])
-    llm_request.contents.append(context_as_user_message)
+        if parsed_tasks and 0 <= current_task_index < len(parsed_tasks):
+            current_task_for_researcher = parsed_tasks[current_task_index]
+            researcher_input_text = (
+                f"RESEARCHER_TASK_INPUT:\n"
+                f"You are the ResearcherAgent. Here is the specific task you need to execute:\n\n"
+                f"{current_task_for_researcher}\n\n"
+                f"Follow your detailed instructions for research execution and output format."
+            )
+            researcher_task_message = Content(role='user', parts=[Part(text=researcher_input_text)])
+            llm_request.contents.append(researcher_task_message)
+            appended_messages_count += 1
+            logger.info(f"Coordinator state (Before Step 2 LLM call): Appended specific task for researcher (task index {current_task_index}): '{str(current_task_for_researcher)[:100]}...'")
 
-    logger.info(f"Coordinator state: BEFORE model call. Current Step: {current_step}. Appended dynamic context as 'user' message.")
+            dynamic_context_text = (
+                f"COORDINATOR_CONTEXT:\n"
+                f"Current Step: {current_step} ({step_action_description})\n"
+                f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
+                f"Instruction: As the DeepResearchCoordinatorAgent, the specific research task for the ResearcherAgent (task {current_task_index + 1} of {len(parsed_tasks)}) has been prepared and added to the immediate context. "
+                f"Your task is to now call 'transfer_to_agent' for the '{researcher_agent.name}' to execute this task. "
+                f"Ensure you use the exact agent name '{researcher_agent.name}'."
+            )
+        else:
+            logger.warning(
+                f"Coordinator state (Step 2): Failed to retrieve valid research task. Index: {current_task_index}, Tasks available: {len(parsed_tasks)}. Instructing coordinator to handle error."
+            )
+            dynamic_context_text = (
+                f"COORDINATOR_CONTEXT:\n"
+                f"Current Step: {current_step} ({step_action_description})\n"
+                f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
+                f"Instruction: As the DeepResearchCoordinatorAgent, there was an error preparing the specific research task for the ResearcherAgent (task index {current_task_index} out of bounds or no tasks). "
+                f"Please report this issue or try to replan if appropriate, according to your main instructions for handling errors."
+            )
+    else:
+        # Standard instruction for other steps
+        dynamic_context_text = (
+            f"COORDINATOR_CONTEXT:\n"
+            f"Current Step: {current_step} ({step_action_description})\n"
+            f"Overall Research Goal (Initial User Query): '{initial_query[:200]}...'\n\n"
+            f"Instruction: As the DeepResearchCoordinatorAgent, your task is to determine and request the correct next action for step {current_step}, which is '{step_action_description}'. "
+            f"Consult your main agent instruction for how to perform this step (e.g., calling a specific sub-agent or preparing data)."
+        )
+
+    coordinator_context_message = Content(role='user', parts=[Part(text=dynamic_context_text)])
+    llm_request.contents.append(coordinator_context_message)
+    appended_messages_count += 1
+
+    logger.info(f"Coordinator state: BEFORE model call. Current Step: {current_step}. Appended {appended_messages_count} message(s) to llm_request.contents.")
 
 
 def after_coord_model(
@@ -150,35 +188,44 @@ def after_coord_model(
                 if current_step_being_processed == 1: # Planner response
                     state[RESEARCH_PLAN_KEY] = response_content
                     logger.info("Coordinator state (Step 1 - Planner Response): Stored research plan.")
+                    logger.info(f"Coordinator state (Step 1 - Planner Response): Raw plan content (first 500 chars): {str(response_content)[:500]}")
                     try:
                         tasks = []
                         current_task_lines = []
-                        lines = response_content.strip().splitlines()
-                        plan_title = lines[0] if lines and lines[0].startswith("#") else "Research Plan"
-                        start_index = 1 if lines and lines[0].startswith("#") else 0
-                        for line in lines[start_index:]:
-                            stripped_line = line.strip()
-                            is_separator = stripped_line == '---'
-                            is_new_task = stripped_line.startswith("**Task_ID:**")
-                            if (is_separator or is_new_task) and current_task_lines:
-                                task_text = "\n".join(current_task_lines).strip()
-                                if "**Task_ID:**" in task_text: tasks.append(task_text)
-                                current_task_lines = []
-                            if not is_separator: current_task_lines.append(line)
-                        if current_task_lines:
-                             task_text = "\n".join(current_task_lines).strip()
-                             if "**Task_ID:**" in task_text: tasks.append(task_text)
-                        
+                        # Ensure response_content is not None and is a string before splitting
+                        if response_content and isinstance(response_content, str):
+                            lines = response_content.strip().splitlines()
+                            plan_title = lines[0] if lines and lines[0].startswith("#") else "Research Plan"
+                            start_index = 1 if lines and lines[0].startswith("#") else 0
+                            for line in lines[start_index:]:
+                                stripped_line = line.strip()
+                                is_separator = stripped_line == '---'
+                                is_new_task = stripped_line.startswith("**Task_ID:**")
+                                if (is_separator or is_new_task) and current_task_lines:
+                                    task_text = "\n".join(current_task_lines).strip()
+                                    if "**Task_ID:**" in task_text: tasks.append(task_text)
+                                    current_task_lines = []
+                                if not is_separator: current_task_lines.append(line)
+                            if current_task_lines:
+                                 task_text = "\n".join(current_task_lines).strip()
+                                 if "**Task_ID:**" in task_text: tasks.append(task_text)
+                        else:
+                            logger.error(f"Coordinator state (Step 1 - Planner Response): Planner response_content is None or not a string. Content: {response_content}")
+                            # tasks will remain empty
+
                         if not tasks:
                              logger.error("Coordinator state (Step 1 - Planner Response): Failed to parse any valid tasks from the plan. Plan content was: " + str(response_content)[:300])
+                             logger.info(f"Coordinator state (Step 1 - Planner Response): Task parsing resulted in {len(tasks)} tasks. step_completed_in_callback is being set to False.")
                              step_completed_in_callback = False
                         else:
                              state[PARSED_RESEARCH_TASKS_KEY] = tasks
                              state[CURRENT_RESEARCH_TASK_INDEX_KEY] = 0
                              logger.info(f"Coordinator state (Step 1 - Planner Response): Parsed {len(tasks)} tasks. Setting step_completed_in_callback = True.")
+                             logger.info(f"Coordinator state (Step 1 - Planner Response): Successfully parsed {len(tasks)} tasks. step_completed_in_callback is being set to True.")
                              step_completed_in_callback = True
                     except Exception as e:
                          logger.error(f"Coordinator state (Step 1 - Planner Response): Error parsing research plan: {e}. Plan: {str(response_content)[:300]}", exc_info=True)
+                         logger.info(f"Coordinator state (Step 1 - Planner Response): Exception during task parsing. step_completed_in_callback is being set to False.")
                          step_completed_in_callback = False
                 elif current_step_being_processed == 2: # Researcher response
                     task_index = state.get(CURRENT_RESEARCH_TASK_INDEX_KEY, 0)
@@ -222,7 +269,13 @@ def after_coord_model(
                     elif current_step_being_processed != 2: # For other steps, if completed, advance
                         next_step = current_step_being_processed + 1
                     # If step 2 completed a task but not all tasks, next_step remains current_step_being_processed
-        else:
+                else: # if step_completed_in_callback is False
+                    next_step = current_step_being_processed
+
+                # NEW LOGGING FOR STEP 1 CONCLUSION - Placed after next_step is determined
+                if current_step_being_processed == 1:
+                    logger.info(f"Coordinator state (Step 1 Conclusion): current_step_being_processed={current_step_being_processed}, step_completed_in_callback={step_completed_in_callback}, determined next_step value={next_step}")
+        else: # This 'else' corresponds to 'if func_response_name == expected_agent_name:'
              logger.warning(f"Coordinator state: Received function response from unexpected sub-agent '{func_response_name}'. Expected '{expected_agent_name}'.")
 
     elif response_text is not None: # Coordinator's own LLM returned text (not a function call/response)
@@ -286,12 +339,16 @@ def after_coord_model(
     if next_step != current_step_being_processed:
         state[COORD_STEP_KEY] = next_step
         logger.info(f"Coordinator state: Advanced COORD_STEP_KEY in state to {next_step}.")
+        if current_step_being_processed == 1 and next_step != current_step_being_processed : # Log if Step 1 successfully advanced
+            logger.info(f"Coordinator state (Step 1 Conclusion): Successfully advanced COORD_STEP_KEY from 1 to {next_step}.")
     elif step_completed_in_callback and current_step_being_processed == 2 and (next_task_index < len(parsed_tasks)): # Special case for step 2 looping over tasks
         logger.info(f"Coordinator state: Step 2 task completed, but more tasks remain. Staying on COORD_STEP_KEY {current_step_being_processed} to process next task.")
     elif step_completed_in_callback:
          logger.info(f"Coordinator state: Step {current_step_being_processed} action processing completed according to callback logic, but next_step is still {next_step}. Waiting for next agent turn if applicable.")
     else:
          logger.info(f"Coordinator state: Staying on step {current_step_being_processed} for further processing or sub-agent response (step_completed_in_callback is False).")
+    if current_step_being_processed == 1 and next_step == current_step_being_processed:
+        logger.warning(f"Coordinator state (Step 1 Conclusion): COORD_STEP_KEY remains at {current_step_being_processed}. Agent will likely re-run Step 1 or stall. This usually indicates a problem in Step 1 processing if it was expected to advance.")
 
 
 deep_research_coordinator = LlmAgent(
